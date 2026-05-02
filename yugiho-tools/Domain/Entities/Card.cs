@@ -1,0 +1,42 @@
+using System.Drawing;
+using System.Drawing.Imaging;
+using Color = System.Drawing.Color;
+using ImageFormat = System.Drawing.Imaging.ImageFormat;
+
+namespace yugiho_tools.Domain.Entities;
+
+public class Card()
+{
+    public int CardId { get; set; }
+    public string Name { get; set; } = "";
+    public int Attack { get; set; }
+    public int Defense { get; set; }
+    public int GuardianStar1 { get; set; }
+    public int GuardianStar2 { get; set; }
+    public int CardType { get; set; }
+    public int Level { get; set; }
+    public int Attribute { get; set; }
+    public string Description { get; set; } = "";
+
+    public int FusionCount { get; set; }
+    public List<int> FusionMaterials { get; set; } = [];
+    public List<int> FusionResults { get; set; } = [];
+
+    // Raw grayscale pixels (40×32) for template matching
+    public byte[]? ThumbnailPixels { get; set; }
+    // "data:image/png;base64,..." for SVG graph display
+    public string? ThumbnailDataUrl { get; set; }
+
+    public string GetTitle() =>
+        $"{Name} ({Attack} | {Defense})\t{GuardianStarName(GuardianStar1)} | {GuardianStarName(GuardianStar2)}";
+
+    public override string ToString() =>
+        $"{CardId}: {Name} ({CardType})\nA/D: {Attack} | {Defense}\n{Description}";
+
+    private static string GuardianStarName(int index) =>
+        index < GuardianStarNames.Length ? GuardianStarNames[index] : "?";
+
+    public static readonly string[] GuardianStarNames =
+        ["None", "Mars", "Jupiter", "Saturn", "Uranus", "Pluto", "Neptune", "Mercury", "Sun", "Moon", "Venus"];
+    
+}

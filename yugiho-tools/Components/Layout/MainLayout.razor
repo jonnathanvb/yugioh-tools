@@ -1,0 +1,50 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider Theme="_theme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="4" Style="background: linear-gradient(90deg, #0d0d1a 0%, #1a1a3e 100%); border-bottom: 1px solid #c8a415;">
+        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Style="color:#c8a415;" Class="mr-2" />
+        <MudText Typo="Typo.h6" Style="font-weight:700; letter-spacing:1px; color:#c8a415;">
+            YU-GI-OH! FORBIDDEN MEMORIES
+        </MudText>
+        <MudText Typo="Typo.caption" Class="ml-2" Style="color:#888; align-self:flex-end; margin-bottom:3px;">
+            Fusion Finder
+        </MudText>
+    </MudAppBar>
+
+    <MudMainContent Class="pt-16" Style="background: #0d0d1a; min-height: 100vh;">
+        @Body
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary        = "#c8a415",
+            Secondary      = "#2a2a6e",
+            Background     = "#0d0d1a",
+            Surface        = "#141428",
+            DrawerBackground = "#0d0d1a",
+            AppbarBackground = "#0d0d1a",
+            TextPrimary    = "#e8e8e8",
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary        = "#c8a415",
+            Secondary      = "#4a4aae",
+            Background     = "#0d0d1a",
+            Surface        = "#141428",
+            DrawerBackground = "#0d0d1a",
+            AppbarBackground = "#0d0d1a",
+            TextPrimary    = "#e8e8e8",
+            TextSecondary  = "#888888",
+            ActionDefault  = "#c8a415",
+        },
+    };
+}

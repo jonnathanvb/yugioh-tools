@@ -1,0 +1,174 @@
+html, body {
+    background: #0d0d1a;
+    overflow-y: auto;
+    overflow-x: hidden;
+    height: 100%;
+    margin: 0;
+}
+
+#app {
+    min-height: 100vh;
+}
+
+.status-bar-safe-area {
+    display: none;
+}
+
+#blazor-error-ui {
+    display: none;
+    background: #1a1a2e;
+    border-top: 1px solid #c8a415;
+    color: #e8e8e8;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    padding: 0.6rem 1.25rem;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
+
+.file-drop-zone {
+    border: 2px dashed #2a2a6e;
+    border-radius: 12px;
+    transition: border-color 0.2s, background 0.2s;
+    cursor: pointer;
+}
+
+.file-drop-zone:hover {
+    border-color: #c8a415;
+    background: rgba(200, 164, 21, 0.05);
+}
+
+.file-drop-zone.loaded {
+    border-color: #4caf50;
+    border-style: solid;
+}
+
+.fusion-step-arrow {
+    color: #c8a415;
+    font-weight: bold;
+}
+
+.fusion-card {
+    border-left: 3px solid #c8a415 !important;
+    transition: transform 0.15s;
+}
+
+.fusion-card:hover {
+    transform: translateX(3px);
+}
+
+.star-icon {
+    color: #c8a415;
+    font-size: 12px;
+}
+
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 6px;
+    background: #0a0a18;
+    border: 1px solid #1e1e4a;
+    border-radius: 6px;
+}
+
+.card-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 6px 4px;
+    background: #141428;
+    border: 1px solid #2a2a6e;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    user-select: none;
+}
+
+.card-tile:hover {
+    border-color: #c8a415;
+    background: #1a1a3e;
+    transform: translateY(-1px);
+}
+
+.card-tile.selected {
+    border-color: #4caf50;
+    background: #0d2010;
+    border-width: 2px;
+    padding: 5px 3px;
+}
+
+.card-tile-name {
+    font-size: 10px;
+    color: #e0e0e0;
+    text-align: center;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    max-height: 24px;
+    width: 100%;
+}
+
+.card-tile-stats {
+    font-size: 10px;
+    font-family: 'Roboto Mono', monospace;
+}
+
+.card-tile-check {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    color: #4caf50;
+    font-size: 16px !important;
+    background: #0a0a18;
+    border-radius: 50%;
+}
+
+.cart-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    background: #141428;
+    border: 1px solid #c8a41560;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.cart-item:hover {
+    border-color: #f44336;
+    background: #2a1010;
+}
+
+.cart-item .cart-close {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    color: #f44336;
+    background: #0d0d1a;
+    border-radius: 50%;
+    font-size: 14px !important;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.cart-item:hover .cart-close {
+    opacity: 1;
+}

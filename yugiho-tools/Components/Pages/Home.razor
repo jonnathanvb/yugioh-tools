@@ -1,0 +1,645 @@
+@page "/"
+@using System.Drawing
+@using yugiho_tools.Application.DTOs
+@using yugiho_tools.Application.Helpers
+
+@using Color = MudBlazor.Color
+@using Size = MudBlazor.Size
+@inject LoadRomDataUseCase LoadRomUseCase
+@inject GetFusionsFromHandUseCase GetFusionsUseCase
+@inject DetectHandFromScreenUseCase DetectHandUseCase
+@inject yugiho_tools.Domain.Interfaces.IScreenCapture ScreenCapture
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
+
+    <!-- ─── File Selection ─────────────────────────────────────────── -->
+    <MudGrid Spacing="4" Class="mb-4">
+        <MudItem xs="12" sm="6">
+            <div class="@FileZoneClass(_gameFilePath)" @onclick="PickGameFile">
+                <MudPaper Class="pa-5" Elevation="0" Style="background:transparent;">
+                    <div class="d-flex flex-column align-center gap-3">
+                        <MudIcon Icon="@Icons.Material.Filled.Memory"
+                                 Style="@FileIconStyle(_gameFilePath)" />
+                        <MudText Typo="Typo.subtitle1"
+                                 Style="font-weight:600; color:#c8a415; letter-spacing:1px;">
+                            SLUS_014.11
+                        </MudText>
+                        <MudText Typo="Typo.caption" Style="color:#888; text-align:center;">
+                            Arquivo principal do jogo (ROM)
+                        </MudText>
+                        @if (_gameFilePath != null)
+                        {
+                            <MudChip T="string" Color="Color.Success" Size="Size.Small"
+                                     Icon="@Icons.Material.Filled.CheckCircle">
+                                @Path.GetFileName(_gameFilePath)
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.FolderOpen">
+                                Selecionar arquivo
+                            </MudButton>
+                        }
+                    </div>
+                </MudPaper>
+            </div>
+        </MudItem>
+
+        <MudItem xs="12" sm="6">
+            <div class="@FileZoneClass(_mrgFilePath)" @onclick="PickMrgFile">
+                <MudPaper Class="pa-5" Elevation="0" Style="background:transparent;">
+                    <div class="d-flex flex-column align-center gap-3">
+                        <MudIcon Icon="@Icons.Material.Filled.Storage"
+                                 Style="@FileIconStyle(_mrgFilePath)" />
+                        <MudText Typo="Typo.subtitle1"
+                                 Style="font-weight:600; color:#c8a415; letter-spacing:1px;">
+                            WA_MRG.MRG
+                        </MudText>
+                        <MudText Typo="Typo.caption" Style="color:#888; text-align:center;">
+                            Arquivo de gráficos e dados (MRG)
+                        </MudText>
+                        @if (_mrgFilePath != null)
+                        {
+                            <MudChip T="string" Color="Color.Success" Size="Size.Small"
+                                     Icon="@Icons.Material.Filled.CheckCircle">
+                                @Path.GetFileName(_mrgFilePath)
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.FolderOpen">
+                                Selecionar arquivo
+                            </MudButton>
+                        }
+                    </div>
+                </MudPaper>
+            </div>
+        </MudItem>
+    </MudGrid>
+
+    <!-- ─── Loading Progress ───────────────────────────────────────── -->
+    @if (_isLoading)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2"
+                  Style="background:#141428; border:1px solid #2a2a6e;">
+            <MudText Typo="Typo.body2" Class="mb-2" Style="color:#888;">
+                @_loadingMessage
+            </MudText>
+            <MudProgressLinear Value="_loadProgress" Color="Color.Primary"
+                               Rounded="true" Size="Size.Medium" />
+            <MudText Typo="Typo.caption" Style="color:#c8a415;" Class="mt-1">
+                @_loadProgress%
+            </MudText>
+        </MudPaper>
+    }
+
+    @if (_cards != null && !_isLoading)
+    {
+        <MudAlert Severity="Severity.Success" Dense="true" Class="mb-4"
+                  Style="background:#0d2010; border:1px solid #4caf50; color:#4caf50;">
+            <strong>@_cards.Count cartas carregadas.</strong>
+            &nbsp;Escolha um modo de operação abaixo.
+        </MudAlert>
+
+        <MudTabs Elevation="3" Rounded="true" ApplyEffectsToContainer="true"
+                 PanelClass="pa-4"
+                 Color="Color.Primary"
+                 Style="background:#141428; border:1px solid #2a2a6e; margin-bottom:24px;">
+
+            <!-- ═══════════════ Tab 1: Auto detection ═══════════════ -->
+            <MudTabPanel Text="Detecção automática"
+                         Icon="@Icons.Material.Filled.Visibility">
+                <MudText Typo="Typo.overline"
+                         Style="color:#888; letter-spacing:2px;">CAPTURA DA JANELA</MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+                <MudGrid>
+                    <MudItem xs="12" sm="7">
+                        <MudSelect T="string" @bind-Value="_selectedWindow"
+                                   Label="Janela do emulador (ePSXe)"
+                                   Variant="Variant.Outlined"
+                                   AnchorOrigin="Origin.BottomLeft">
+                            @foreach (var t in _windowTitles)
+                            {
+                                <MudSelectItem Value="@t">@t</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="2" sm="1" Class="d-flex align-center justify-center">
+                        <MudTooltip Text="Atualizar lista">
+                            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                           Color="Color.Default"
+                                           OnClick="RefreshWindows" />
+                        </MudTooltip>
+                    </MudItem>
+                    <MudItem xs="10" sm="4" Class="d-flex align-center">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   FullWidth="true" Size="Size.Large"
+                                   StartIcon="@Icons.Material.Filled.Search"
+                                   OnClick="GetFusions"
+                                   Disabled="@(_isDetecting || string.IsNullOrEmpty(_selectedWindow))"
+                                   Style="font-weight:700; letter-spacing:1px;">
+                            @(_isDetecting ? "ANALISANDO..." : "GET FUSIONS")
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+                @if (_isDetecting)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary"
+                                       Class="mt-3" Rounded="true" />
+                }
+            </MudTabPanel>
+
+            <!-- ═══════════════ Tab 2: Manual selection ═══════════════ -->
+            <MudTabPanel Text="Seleção manual"
+                         Icon="@Icons.Material.Filled.TouchApp">
+                <MudText Typo="Typo.overline"
+                         Style="color:#888; letter-spacing:2px;">FILTROS</MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudGrid Spacing="2" Class="mb-3">
+                    <MudItem xs="12" sm="6" md="5">
+                        <MudTextField T="string"
+                                      Value="@_searchTerm"
+                                      ValueChanged="@(v => { _searchTerm = v ?? ""; })"
+                                      Immediate="true"
+                                      Label="Buscar por nome"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search" />
+                    </MudItem>
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudNumericField T="int?" @bind-Value="_minAtk"
+                                         Label="ATK min" Variant="Variant.Outlined"
+                                         Min="0" Step="100" Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudNumericField T="int?" @bind-Value="_maxAtk"
+                                         Label="ATK max" Variant="Variant.Outlined"
+                                         Min="0" Step="100" Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="12" md="3" Class="d-flex align-center">
+                        <MudSwitch T="bool" @bind-Value="_onlyFusionMaterials"
+                                   Color="Color.Primary"
+                                   Label="Só cartas usadas em fusão" />
+                    </MudItem>
+                </MudGrid>
+
+                <!-- Cart -->
+                <MudPaper Class="pa-3 mb-3" Elevation="0"
+                          Style="background:#0a0a18; border:1px dashed #c8a41560;">
+                    <div class="d-flex align-center justify-space-between mb-2 flex-wrap gap-2">
+                        <MudText Typo="Typo.subtitle2" Style="color:#c8a415;">
+                            <MudIcon Icon="@Icons.Material.Filled.ShoppingCart"
+                                     Size="Size.Small" Class="mr-1" />
+                            Mão selecionada (@_selectedManualCards.Count)
+                        </MudText>
+                        <div class="d-flex gap-2">
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       Color="Color.Default"
+                                       OnClick="ClearSelection"
+                                       Disabled="@(_selectedManualCards.Count == 0)"
+                                       StartIcon="@Icons.Material.Filled.ClearAll">
+                                Limpar
+                            </MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.AccountTree"
+                                       OnClick="GetFusionsManual"
+                                       Disabled="@(_isDetecting || _selectedManualCards.Count == 0)">
+                                @(_isDetecting ? "Calculando..." : "Calcular fusões")
+                            </MudButton>
+                        </div>
+                    </div>
+
+                    @if (_selectedManualCards.Count == 0)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666;">
+                            Clique nas cartas abaixo para adicioná-las à mão.
+                        </MudText>
+                    }
+                    else
+                    {
+                        <div class="d-flex gap-2 flex-wrap">
+                            @foreach (var c in _selectedManualCards)
+                            {
+                                <div class="cart-item" @onclick="() => RemoveFromHand(c)"
+                                     title="@($"{c.Name} — clique para remover")">
+                                    @if (c.ThumbnailDataUrl != null)
+                                    {
+                                        <img src="@c.ThumbnailDataUrl"
+                                             style="width:48px;height:38px;image-rendering:pixelated;" />
+                                    }
+                                    <MudIcon Icon="@Icons.Material.Filled.Close"
+                                             Class="cart-close"
+                                             Size="Size.Small" />
+                                </div>
+                            }
+                        </div>
+                    }
+                </MudPaper>
+
+                <!-- Card grid -->
+                @{
+                    var filtered = FilteredCards().Take(MaxGridCards).ToList();
+                    var totalFiltered = FilteredCardsCount();
+                }
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
+                    @filtered.Count de @totalFiltered cartas
+                    @(totalFiltered > MaxGridCards ? $" (mostrando primeiras {MaxGridCards} — refine o filtro)" : "")
+                </MudText>
+
+                <div class="card-grid">
+                    @foreach (var c in filtered)
+                    {
+                        var selected = IsInHand(c);
+                        <div class="card-tile @(selected ? "selected" : "")"
+                             @onclick="() => AddToHand(c)"
+                             title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense}")">
+                            @if (c.ThumbnailDataUrl != null)
+                            {
+                                <img src="@c.ThumbnailDataUrl"
+                                     style="width:64px;height:50px;image-rendering:pixelated;" />
+                            }
+                            <div class="card-tile-name">@c.Name</div>
+                            <div class="card-tile-stats">
+                                <span style="color:#c8a415;font-weight:700;">@c.Attack</span>
+                                <span style="color:#666;">/</span>
+                                <span style="color:#64b5f6;font-weight:700;">@c.Defense</span>
+                            </div>
+                            @if (selected)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                         Class="card-tile-check" />
+                            }
+                        </div>
+                    }
+                </div>
+            </MudTabPanel>
+        </MudTabs>
+
+        <!-- ─── Results (shared by both tabs) ─────────────────────── -->
+        @if (_allSequences != null)
+        {
+            <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
+                <div>
+                    <MudText Typo="Typo.overline"
+                             Style="color:#888; letter-spacing:2px;">FUSÕES POSSÍVEIS</MudText>
+                    <MudText Typo="Typo.h5"
+                             Style="color:#c8a415; font-weight:700;">
+                        @_finalCards!.Count resultado(s) finais
+                        · @_allSequences.Count caminho(s)
+                    </MudText>
+                </div>
+                <MudChip T="string" Size="Size.Small"
+                         Style="background:#1a1a3e; color:#888; border:1px solid #2a2a6e;">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountTree"
+                             Size="Size.Small" Class="mr-1" />
+                    Grafo global
+                </MudChip>
+            </div>
+
+            @if (_allSequences.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info"
+                          Style="background:#0d1520; border:1px solid #2a5a8e;">
+                    Nenhuma fusão possível com as cartas dadas.
+                </MudAlert>
+            }
+            else
+            {
+                <div class="d-flex gap-2 mb-3 flex-wrap">
+                    @foreach (var f in _finalCards!)
+                    {
+                        <MudChip T="string" Size="Size.Small"
+                                 Style="background:#2a1a00; color:#c8a415;
+                                        border:1px solid #c8a41540; font-weight:700;">
+                            @f.Name (⚔ @f.Attack / 🛡 @f.Defense)
+                        </MudChip>
+                    }
+                </div>
+
+                <div class="d-flex gap-3 mb-3 flex-wrap">
+                    <div class="d-flex align-center gap-1">
+                        <div style="width:12px;height:12px;background:#141428;
+                                    border:1px solid #2a5a8e;border-radius:2px;"></div>
+                        <MudText Typo="Typo.caption" Style="color:#888;">
+                            Carta de entrada
+                        </MudText>
+                    </div>
+                    <div class="d-flex align-center gap-1">
+                        <div style="width:12px;height:12px;background:#1a1035;
+                                    border:1px solid #6a3aae;border-radius:2px;"></div>
+                        <MudText Typo="Typo.caption" Style="color:#888;">
+                            Resultado intermediário
+                        </MudText>
+                    </div>
+                    <div class="d-flex align-center gap-1">
+                        <div style="width:12px;height:12px;background:#2a1a00;
+                                    border:2px solid #c8a415;border-radius:2px;"></div>
+                        <MudText Typo="Typo.caption" Style="color:#888;">
+                            Resultado final
+                        </MudText>
+                    </div>
+                    <div class="d-flex align-center gap-1">
+                        <div style="width:12px;height:12px;background:#1a1035;
+                                    border:1px solid #c8a415;border-radius:50%;"></div>
+                        <MudText Typo="Typo.caption" Style="color:#888;">
+                            Junção de fusão (A + B)
+                        </MudText>
+                    </div>
+                </div>
+
+                <MudPaper Class="pa-2" Elevation="2"
+                          Style="background:#141428; border:1px solid #1e1e4a;">
+                    <FusionGraphSvg Sequences="@_allSequences" AllCards="@_cards" />
+                </MudPaper>
+            }
+        }
+    }
+
+</MudContainer>
+
+@code {
+    private const int MaxGridCards = 200;
+
+    // ── File selection ─────────────────────────────────────────────
+    private string? _gameFilePath;
+    private string? _mrgFilePath;
+
+    // ── Loading ────────────────────────────────────────────────────
+    private IReadOnlyList<Card>? _cards;
+    private bool   _isLoading;
+    private int    _loadProgress;
+    private string _loadingMessage = "";
+
+    // ── Auto detection ─────────────────────────────────────────────
+    private List<string> _windowTitles  = [];
+    private string       _selectedWindow = "";
+    private bool         _isDetecting;
+
+    // ── Manual selection ───────────────────────────────────────────
+    private string _searchTerm = "";
+    private int?   _minAtk;
+    private int?   _maxAtk;
+    private bool   _onlyFusionMaterials;
+    private readonly List<Card> _selectedManualCards = [];
+
+    private HashSet<int>? _fusionMaterialIds;
+
+    // ── Results ────────────────────────────────────────────────────
+    private IReadOnlyList<FusionSequence>? _allSequences;
+    private List<Card>?                    _finalCards;
+
+    // ── Lifecycle ──────────────────────────────────────────────────
+    private const string PrefGameKey = "yugiho.gameFilePath";
+    private const string PrefMrgKey  = "yugiho.mrgFilePath";
+
+    protected override async Task OnInitializedAsync()
+    {
+        RefreshWindows();
+
+        var g = Preferences.Default.Get(PrefGameKey, "");
+        var m = Preferences.Default.Get(PrefMrgKey, "");
+        if (!string.IsNullOrEmpty(g) && File.Exists(g)) _gameFilePath = g;
+        if (!string.IsNullOrEmpty(m) && File.Exists(m)) _mrgFilePath  = m;
+
+        if (_gameFilePath != null && _mrgFilePath != null)
+            await LoadCards();
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────
+    private static string FileZoneClass(string? path) =>
+        "file-drop-zone " + (path != null ? "loaded" : "");
+
+    private static string FileIconStyle(string? path) =>
+        $"font-size:3rem; color:{(path != null ? "#4caf50" : "#c8a415")}";
+
+    // ── Window list ────────────────────────────────────────────────
+    private void RefreshWindows()
+    {
+        _windowTitles = ScreenCapture.GetWindowTitles()
+            .Where(t => t.Contains("ePSXe", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (_windowTitles.Count == 0)
+            _selectedWindow = "";
+        else if (string.IsNullOrEmpty(_selectedWindow) || !_windowTitles.Contains(_selectedWindow))
+            _selectedWindow = _windowTitles[0];
+    }
+
+    // ── File pickers ───────────────────────────────────────────────
+    private async Task PickGameFile()
+    {
+        var r = await MainThread.InvokeOnMainThreadAsync(() =>
+            FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Selecionar SLUS_014.11"
+            }));
+        if (r is null) return;
+        _gameFilePath = r.FullPath;
+        Preferences.Default.Set(PrefGameKey, _gameFilePath);
+        await TryAutoLoad();
+    }
+
+    private async Task PickMrgFile()
+    {
+        var r = await MainThread.InvokeOnMainThreadAsync(() =>
+            FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Selecionar WA_MRG.MRG"
+            }));
+        if (r is null) return;
+        _mrgFilePath = r.FullPath;
+        Preferences.Default.Set(PrefMrgKey, _mrgFilePath);
+        await TryAutoLoad();
+    }
+
+    private async Task TryAutoLoad()
+    {
+        StateHasChanged();
+        if (_gameFilePath is null || _mrgFilePath is null) return;
+        await LoadCards();
+    }
+
+    // ── Load ROM ───────────────────────────────────────────────────
+    private async Task LoadCards()
+    {
+        _isLoading     = true;
+        _loadProgress  = 0;
+        _cards         = null;
+        _allSequences  = null;
+        _finalCards    = null;
+        _fusionMaterialIds = null;
+        _selectedManualCards.Clear();
+
+        try
+        {
+            var progress = new Progress<int>(p =>
+            {
+                _loadProgress   = p;
+                _loadingMessage = p < 20 ? "Lendo arquivos ROM..."
+                                : p < 30 ? "Decodificando cartas..."
+                                : p < 95 ? $"Carregando thumbnails... {p}%"
+                                         : "Finalizando...";
+                InvokeAsync(StateHasChanged);
+            });
+
+            _cards = await LoadRomUseCase.ExecuteAsync(
+                _gameFilePath!, _mrgFilePath!, loadThumbnails: true, progress);
+
+            BuildFusionMaterialIndex();
+
+            Snackbar.Add($"{_cards.Count} cartas carregadas!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao carregar ROM: {ex.Message}", Severity.Error);
+            _gameFilePath = null;
+            _mrgFilePath  = null;
+            Preferences.Default.Remove(PrefGameKey);
+            Preferences.Default.Remove(PrefMrgKey);
+        }
+        finally
+        {
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void BuildFusionMaterialIndex()
+    {
+        if (_cards is null) { _fusionMaterialIds = null; return; }
+
+        var ids = new HashSet<int>();
+        foreach (var c in _cards)
+            foreach (var m in c.FusionMaterials)
+                if (m >= 0) ids.Add(m);
+        _fusionMaterialIds = ids;
+    }
+
+    // ── Manual selection helpers ───────────────────────────────────
+    private bool IsInHand(Card c) =>
+        _selectedManualCards.Any(x => x.CardId == c.CardId);
+
+    private void AddToHand(Card c)
+    {
+        if (IsInHand(c)) RemoveFromHand(c);
+        else _selectedManualCards.Add(c);
+    }
+
+    private void RemoveFromHand(Card c) =>
+        _selectedManualCards.RemoveAll(x => x.CardId == c.CardId);
+
+    private void ClearSelection()
+    {
+        _selectedManualCards.Clear();
+        _allSequences = null;
+        _finalCards   = null;
+    }
+
+    private IEnumerable<Card> FilteredCards()
+    {
+        if (_cards is null) yield break;
+
+        foreach (var c in _cards)
+        {
+            if (string.IsNullOrWhiteSpace(c.Name)) continue;
+            if (!string.IsNullOrEmpty(_searchTerm) &&
+                !c.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (_minAtk.HasValue && c.Attack < _minAtk.Value) continue;
+            if (_maxAtk.HasValue && c.Attack > _maxAtk.Value) continue;
+            if (_onlyFusionMaterials &&
+                _fusionMaterialIds is { } ids &&
+                !ids.Contains(c.CardId - 1))
+                continue;
+            yield return c;
+        }
+    }
+
+    private int FilteredCardsCount() => FilteredCards().Count();
+
+    // ── Get Fusions: auto ──────────────────────────────────────────
+    private async Task GetFusions()
+    {
+        if (_cards is null) return;
+
+        _isDetecting  = true;
+        _allSequences = null;
+        _finalCards   = null;
+
+        try
+        {
+            var hand = await Task.Run(() =>
+                DetectHandUseCase.Execute(_selectedWindow, _cards));
+
+            if (hand is null || hand.Count == 0)
+            {
+                Snackbar.Add("Nenhuma carta detectada na janela.", Severity.Warning);
+                return;
+            }
+
+            await ComputeAndShowFusions(hand);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isDetecting = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // ── Get Fusions: manual ────────────────────────────────────────
+    private async Task GetFusionsManual()
+    {
+        if (_cards is null || _selectedManualCards.Count == 0) return;
+
+        _isDetecting  = true;
+        _allSequences = null;
+        _finalCards   = null;
+
+        try
+        {
+            var hand = _selectedManualCards.Select(c => c.CardId - 1).ToList();
+            await ComputeAndShowFusions(hand);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isDetecting = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ComputeAndShowFusions(IReadOnlyList<int> hand)
+    {
+        if (_cards is null) return;
+
+        var sequences = await Task.Run(() =>
+            GetFusionsUseCase.Execute(hand, _cards));
+
+        _allSequences = sequences;
+        _finalCards = sequences
+            .Select(s => s.FinalCard)
+            .DistinctBy(c => c.Name)
+            .OrderByDescending(c => c.Attack)
+            .ToList();
+
+        Snackbar.Add(
+            _finalCards.Count == 0
+                ? "Nenhuma fusão possível com a mão informada."
+                : $"{_finalCards.Count} resultado(s) finais em {_allSequences.Count} caminho(s).",
+            _finalCards.Count == 0 ? Severity.Info : Severity.Success);
+    }
+}

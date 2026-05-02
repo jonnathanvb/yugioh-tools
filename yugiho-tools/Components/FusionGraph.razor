@@ -1,0 +1,26 @@
+@inject IJSRuntime JS
+
+<div id="@_id" style="width:100%; overflow-x:auto; min-height:120px;">
+    @if (!_rendered)
+    {
+        <div style="display:flex; align-items:center; justify-content:center; height:120px;">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Code { get; set; } = "";
+
+    private readonly string _id = "fg_" + Guid.NewGuid().ToString("N")[..10];
+    private bool _rendered;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !string.IsNullOrWhiteSpace(Code))
+        {
+            await JS.InvokeVoidAsync("mermaidRender", _id, Code);
+            _rendered = true;
+        }
+    }
+}
