@@ -13,7 +13,8 @@ public class DetectHandFromScreenUseCase(IScreenCapture screenCapture, ICardDete
         byte[]? frame = screenCapture.CaptureWindow(windowTitle);
         if (frame is null) return null;
 
-        SaveCaptureLog(frame);
+        // codigo para log do emulador.
+        // SaveCaptureLog(frame);
         return cardDetector.DetectCards(frame, cards);
     }
 
