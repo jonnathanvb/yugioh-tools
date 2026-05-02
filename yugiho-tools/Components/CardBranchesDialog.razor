@@ -1,0 +1,107 @@
+@using yugiho_tools.Application.DTOs
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Domain.Entities
+@using Color = MudBlazor.Color
+
+<MudDialog Style="background:#0d0d1a;">
+    <DialogContent>
+        <div class="d-flex align-center gap-3 mb-2 flex-wrap">
+            <img src="@CardImage.Url(Card.CardId)"
+                 style="width:80px; aspect-ratio:271/386; object-fit:contain;
+                        border-radius:4px; border:1px solid #c8a415;" />
+            <div>
+                <MudText Typo="Typo.caption" Style="color:#888;">#@Card.CardId</MudText>
+                <MudText Typo="Typo.h6" Style="color:#c8a415; font-weight:700;">
+                    @Card.Name
+                </MudText>
+                <MudText Typo="Typo.body2" Style="color:#cfcfe0;">
+                    @CardMetadata.TypeName(Card.CardType) ·
+                    @CardMetadata.AttributeName(Card.Attribute) ·
+                    <span style="color:#c8a415;">ATK @Card.Attack</span> /
+                    <span style="color:#64b5f6;">DEF @Card.Defense</span>
+                </MudText>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <MudChip T="string" Size="Size.Small"
+                     Style="background:#0a1a30; color:#64b5f6; border:1px solid #2a5a8e;">
+                <MudIcon Icon="@Icons.Material.Filled.CallReceived"
+                         Size="Size.Small" Class="mr-1" />
+                Origem: @_originCount
+            </MudChip>
+            <MudChip T="string" Size="Size.Small"
+                     Style="background:#2a1a00; color:#c8a415; border:1px solid #c8a41540;">
+                <MudIcon Icon="@Icons.Material.Filled.CallMade"
+                         Size="Size.Small" Class="mr-1" />
+                Destino: @_destinationCount
+            </MudChip>
+            <MudChip T="string" Size="Size.Small"
+                     Style="background:#1a1a3e; color:#888; border:1px solid #2a2a6e;">
+                <MudIcon Icon="@Icons.Material.Filled.AccountTree"
+                         Size="Size.Small" Class="mr-1" />
+                @_relatedSequences.Count caminho(s)
+            </MudChip>
+        </div>
+
+        @if (_relatedSequences.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info"
+                      Style="background:#0d1520; border:1px solid #2a5a8e;">
+                Esta carta não participa de nenhum caminho de fusão calculado.
+            </MudAlert>
+        }
+        else
+        {
+            <MudPaper Class="pa-2" Elevation="0"
+                      Style="background:#141428; border:1px solid #1e1e4a;">
+                <FusionGraphSvg Sequences="@_relatedSequences"
+                                AllCards="@AllCards"
+                                Zoom="0.45" />
+            </MudPaper>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="Close">Fechar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public Card Card { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<FusionSequence> Sequences { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<Card> AllCards { get; set; } = [];
+
+    private List<FusionSequence> _relatedSequences = [];
+    private int _originCount;
+    private int _destinationCount;
+
+    protected override void OnParametersSet()
+    {
+        var name = Card.Name;
+        _relatedSequences = Sequences
+            .Where(s => s.Steps.Any(st => st.Card1 == name || st.Card2 == name || st.Result == name))
+            .ToList();
+
+        // Count distinct (A,B,R) steps where this card is a result vs material
+        var seenOrigin      = new HashSet<(string, string, string)>();
+        var seenDestination = new HashSet<(string, string, string)>();
+        foreach (var s in _relatedSequences)
+        {
+            foreach (var st in s.Steps)
+            {
+                var (a, b) = string.Compare(st.Card1, st.Card2, StringComparison.Ordinal) <= 0
+                    ? (st.Card1, st.Card2) : (st.Card2, st.Card1);
+                var key = (a, b, st.Result);
+
+                if (st.Result == name) seenOrigin.Add(key);
+                if (st.Card1 == name || st.Card2 == name) seenDestination.Add(key);
+            }
+        }
+        _originCount      = seenOrigin.Count;
+        _destinationCount = seenDestination.Count;
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

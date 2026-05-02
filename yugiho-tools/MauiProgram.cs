@@ -6,6 +6,7 @@ using yugiho_tools.Domain.Interfaces;
 using yugiho_tools.Infrastructure.CardDetection;
 using yugiho_tools.Infrastructure.Parsing;
 using yugiho_tools.Infrastructure.ScreenCapture;
+using yugiho_tools.Infrastructure.Shortcuts;
 using yugiho_tools.Infrastructure.Storage;
 
 namespace yugiho_tools;
@@ -23,11 +24,13 @@ public static class MauiProgram
         builder.Services.AddMudServices();
 
         // Domain / Application
-        builder.Services.AddSingleton<IRomParser,     RomParser>();
-        builder.Services.AddSingleton<IFusionEngine,  FusionEngine>();
+        builder.Services.AddSingleton<IRomParser,         RomParser>();
+        builder.Services.AddSingleton<IMemoryCardParser,  EpsxeMemoryCardParser>();
+        builder.Services.AddSingleton<IFusionEngine,      FusionEngine>();
         builder.Services.AddSingleton<IScreenCapture, WindowsScreenCapture>();
         builder.Services.AddSingleton<ICardDetector,  OpenCvCardDetector>();
         builder.Services.AddSingleton<IModRepository, FileModRepository>();
+        builder.Services.AddSingleton<IGlobalShortcutService, WindowsGlobalShortcutService>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.AppSettings>();
 
         builder.Services.AddScoped<LoadRomDataUseCase>();
@@ -36,6 +39,7 @@ public static class MauiProgram
         builder.Services.AddScoped<RegisterModUseCase>();
         builder.Services.AddScoped<ListModsUseCase>();
         builder.Services.AddScoped<DeleteModUseCase>();
+        builder.Services.AddScoped<ParseMemoryCardUseCase>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

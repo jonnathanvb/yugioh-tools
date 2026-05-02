@@ -1,0 +1,475 @@
+@page "/memory-card"
+@using yugiho_tools.Application.DTOs
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Domain.Entities
+
+@using Color = MudBlazor.Color
+@using Size = MudBlazor.Size
+@inject LoadRomDataUseCase LoadRomUseCase
+@inject GetFusionsFromHandUseCase GetFusionsUseCase
+@inject ParseMemoryCardUseCase ParseMemoryCardUseCase
+@inject ListModsUseCase ListModsUseCase
+@inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
+              Style="max-width:80%; margin-left:auto; margin-right:auto;">
+
+    <div class="d-flex align-center mb-4 gap-2">
+        <MudIcon Icon="@Icons.Material.Filled.SdCard"
+                 Style="color:#c8a415; font-size:2rem;" />
+        <div>
+            <MudText Typo="Typo.overline"
+                     Style="color:#888; letter-spacing:2px;">EXTRAÇÃO</MudText>
+            <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                Memory Card (ePSXe)
+            </MudText>
+        </div>
+    </div>
+
+    <!-- ─── Mod + File pickers ────────────────────────────────────── -->
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle2" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.LibraryBooks"
+                             Class="mr-1" Size="Size.Small" />
+                    MOD para mapear cartas
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudSelect T="string" Value="_selectedSlug"
+                           ValueChanged="OnModChanged"
+                           Label="ROM cadastrada"
+                           Variant="Variant.Outlined"
+                           Disabled="@(_mods.Count == 0 || _isLoading)"
+                           AnchorOrigin="Origin.BottomLeft">
+                    @foreach (var m in _mods)
+                    {
+                        <MudSelectItem T="string" Value="@m.Slug">
+                            @m.Name <span style="color:#666;">— MOD/@m.Slug</span>
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+
+                @if (_isLoading)
+                {
+                    <MudProgressLinear Value="_loadProgress" Color="Color.Primary"
+                                       Rounded="true" Class="mt-3" />
+                    <MudText Typo="Typo.caption" Style="color:#c8a415;" Class="mt-1">
+                        @_loadingMessage (@_loadProgress%)
+                    </MudText>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle2" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.UploadFile"
+                             Class="mr-1" Size="Size.Small" />
+                    Arquivo do memory card
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <div class="d-flex gap-2 align-center">
+                    <MudTextField T="string" Value="@(_mcrFilePath ?? "")"
+                                  Label="Arquivo .mcr / .mc / .mem"
+                                  Variant="Variant.Outlined" ReadOnly="true"
+                                  Style="flex:1;" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                               Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.FolderOpen"
+                               OnClick="PickMcrFile"
+                               Disabled="@(_cards is null || _isParsing)"
+                               Style="height:56px; font-weight:700;">
+                        Selecionar
+                    </MudButton>
+                </div>
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mt-2">
+                    Pasta padrão do ePSXe: <code>C:\epsxe\memcards\</code>
+                </MudText>
+
+                @if (_isParsing)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Secondary"
+                                       Class="mt-2" Rounded="true" />
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @if (_parseResult != null)
+    {
+        <!-- ─── Saves encontrados ─────────────────────────────────── -->
+        <MudPaper Class="pa-4 mb-3" Elevation="3"
+                  Style="background:#141428; border:1px solid #2a2a6e;">
+            <MudText Typo="Typo.overline"
+                     Style="color:#888; letter-spacing:2px;">
+                SAVES ENCONTRADOS (@_parseResult.Saves.Count)
+            </MudText>
+            <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+            @if (_parseResult.Saves.Count == 0)
+            {
+                <MudAlert Severity="Severity.Warning"
+                          Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
+                    Nenhum save válido foi encontrado neste memory card.
+                </MudAlert>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var save in _parseResult.Saves)
+                    {
+                        var isSelected = _selectedSave == save;
+                        var hasCards   = save.Cards.Count > 0;
+                        <MudPaper Class="@($"pa-3 cursor-pointer {(isSelected ? "save-selected" : "")}")"
+                                  Elevation="0"
+                                  Style="@SaveCardStyle(save, isSelected)"
+                                  @onclick="() => SelectSave(save)">
+                            <div class="d-flex align-center gap-2">
+                                <MudIcon Icon="@(hasCards
+                                            ? Icons.Material.Filled.AutoAwesome
+                                            : Icons.Material.Filled.SaveAlt)"
+                                         Style="@(hasCards ? "color:#c8a415" : "color:#888")" />
+                                <div>
+                                    <MudText Typo="Typo.body2" Style="color:#e0e0e0; font-weight:600;">
+                                        @save.GameCode
+                                    </MudText>
+                                    <MudText Typo="Typo.caption" Style="color:#888;">
+                                        Slot @(save.SlotIndex + 1) ·
+                                        @save.BlockCount bloco(s) ·
+                                        @save.SaveId
+                                        @if (hasCards)
+                                        {
+                                            <span style="color:#c8a415;"> · @save.Cards.Count cartas</span>
+                                        }
+                                    </MudText>
+                                </div>
+                            </div>
+                        </MudPaper>
+                    }
+                </div>
+            }
+        </MudPaper>
+
+        @if (_selectedSave != null && _cards != null && _selectedSave.Cards.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-3"
+                      Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
+                <strong>Não foi possível obter informações no save informado.</strong>
+                <br />
+                <span style="color:#aa9b6a;">
+                    O save <code>@_selectedSave.GameCode</code> /
+                    <code>@_selectedSave.SaveId</code> foi lido, mas o algoritmo
+                    não localizou um padrão reconhecido de deck/trunk de Forbidden
+                    Memories. Pode ser de outro jogo, de uma versão com layout
+                    diferente ou estar comprimido/criptografado.
+                </span>
+            </MudAlert>
+        }
+
+        @if (_selectedSave != null && _cards != null && _selectedSave.Cards.Count > 0)
+        {
+            <!-- ─── Cartas extraídas ──────────────────────────────── -->
+            <MudPaper Class="pa-4 mb-3" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
+                    <div>
+                        <MudText Typo="Typo.overline"
+                                 Style="color:#888; letter-spacing:2px;">CARTAS DO SAVE</MudText>
+                        <MudText Typo="Typo.h6" Style="color:#c8a415; font-weight:700;">
+                            @_selectedSave.Cards.Count cartas distintas ·
+                            @_selectedSave.Cards.Sum(e => e.Count) total
+                        </MudText>
+                    </div>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.AutoFixHigh"
+                               OnClick="CalculateFusions"
+                               Disabled="@(_isCalculating || _selectedSave.Cards.Count == 0)"
+                               Style="font-weight:700; min-width:240px;">
+                        @(_isCalculating ? "CALCULANDO..." : "CALCULAR FUSÕES DO DECK")
+                    </MudButton>
+                </div>
+
+                <div class="card-grid"
+                     style="--tile-min:120px; --tile-max:180px;">
+                    @foreach (var entry in _selectedSave.Cards)
+                    {
+                        var card = CardForId(entry.CardId);
+                        if (card is null) continue;
+                        <div class="card-tile" title="@($"{card.Name} — ATK {card.Attack} / DEF {card.Defense}")">
+                            <img src="@CardImage.Url(card.CardId)" loading="lazy"
+                                 class="card-tile-img" alt="@card.Name" />
+                            @if (entry.Count > 1)
+                            {
+                                <div class="save-card-count">×@entry.Count</div>
+                            }
+                        </div>
+                    }
+                </div>
+            </MudPaper>
+
+            @if (_allSequences != null && _allSequences.Count > 0)
+            {
+                <MudPaper Class="pa-2" Elevation="2"
+                          Style="background:#141428; border:1px solid #1e1e4a;">
+                    <FusionGraphSvg Sequences="@_allSequences" AllCards="@_cards"
+                                    Zoom="0.45"
+                                    OnCardClicked="ShowCardBranches"
+                                    OnCardLongClicked="ShowCardDetails" />
+                </MudPaper>
+            }
+            else if (_allSequences != null && _allSequences.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info"
+                          Style="background:#0d1520; border:1px solid #2a5a8e;">
+                    Nenhuma fusão possível com as cartas extraídas deste save.
+                </MudAlert>
+            }
+        }
+    }
+
+</MudContainer>
+
+<style>
+    .save-card-count {
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        background: rgba(200, 164, 21, 0.92);
+        color: #1a1100;
+        font-weight: 700;
+        font-size: 12px;
+        padding: 1px 6px;
+        border-radius: 8px;
+    }
+    .save-selected {
+        outline: 2px solid #c8a415;
+    }
+</style>
+
+@code {
+    private const string PrefSelectedSlugKey = "yugiho.selectedModSlug";
+
+    // Mods
+    private List<Mod> _mods = [];
+    private string?  _selectedSlug;
+
+    // Cards (loaded from selected mod)
+    private IReadOnlyList<Card>? _cards;
+    private bool   _isLoading;
+    private int    _loadProgress;
+    private string _loadingMessage = "";
+
+    // Memory card
+    private string? _mcrFilePath;
+    private bool _isParsing;
+    private MemoryCardParseResult? _parseResult;
+    private MemoryCardSave? _selectedSave;
+
+    // Fusion calc
+    private bool _isCalculating;
+    private IReadOnlyList<FusionSequence>? _allSequences;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _mods = (await ListModsUseCase.ExecuteAsync()).ToList();
+
+        var stored = Preferences.Default.Get(PrefSelectedSlugKey, "");
+        var auto = !string.IsNullOrEmpty(stored) && _mods.Any(m => m.Slug == stored)
+            ? stored
+            : _mods.FirstOrDefault()?.Slug;
+
+        if (auto != null)
+            await OnModChanged(auto);
+    }
+
+    private async Task OnModChanged(string slug)
+    {
+        _selectedSlug = slug;
+        Preferences.Default.Set(PrefSelectedSlugKey, slug ?? "");
+        var mod = _mods.FirstOrDefault(m => m.Slug == slug);
+        if (mod is null) return;
+
+        _isLoading = true;
+        _loadProgress = 0;
+        _cards = null;
+        _parseResult = null;
+        _selectedSave = null;
+        _allSequences = null;
+
+        try
+        {
+            var progress = new Progress<int>(p =>
+            {
+                _loadProgress = p;
+                _loadingMessage = p < 30 ? "Lendo ROM..." : "Carregando cartas...";
+                InvokeAsync(StateHasChanged);
+            });
+
+            _cards = await LoadRomUseCase.ExecuteAsync(
+                ModRepo.GetGameFilePath(mod),
+                ModRepo.GetMrgFilePath(mod),
+                loadThumbnails: true,
+                progress);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao carregar MOD: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task PickMcrFile()
+    {
+        var fileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+        {
+            { DevicePlatform.WinUI, new[] { ".mcr", ".mc", ".mem", ".gme", ".psx", ".ps", ".srm", "*" } },
+        });
+        var r = await MainThread.InvokeOnMainThreadAsync(() =>
+            FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Selecionar memory card do ePSXe",
+                FileTypes   = fileType,
+            }));
+        if (r is null) return;
+
+        _mcrFilePath  = r.FullPath;
+        _parseResult  = null;
+        _selectedSave = null;
+        _allSequences = null;
+        _isParsing    = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            _parseResult = await ParseMemoryCardUseCase.ExecuteAsync(_mcrFilePath!);
+
+            int totalSaves     = _parseResult.Saves.Count;
+            int withCards      = _parseResult.Saves.Count(s => s.Cards.Count > 0);
+            Snackbar.Add(
+                totalSaves == 0
+                    ? "Nenhum save encontrado neste memory card."
+                    : $"{totalSaves} save(s) lido(s) — {withCards} com cartas extraíveis.",
+                totalSaves == 0 ? Severity.Warning : Severity.Success);
+
+            // Auto-select preferentially a save where extraction succeeded;
+            // fall back to the first save in the card.
+            _selectedSave = _parseResult.Saves.FirstOrDefault(s => s.Cards.Count > 0)
+                            ?? _parseResult.Saves.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao ler memory card: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isParsing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void SelectSave(MemoryCardSave save)
+    {
+        _selectedSave = save;
+        _allSequences = null;
+    }
+
+    private string SaveCardStyle(MemoryCardSave save, bool selected)
+    {
+        bool hasCards = save.Cards.Count > 0;
+        var  bg       = hasCards ? "#2a1a00" : "#1a1a3e";
+        var  border   = selected ? "#c8a415" : (hasCards ? "#c8a41540" : "#2a2a6e");
+        return $"background:{bg}; border:1px solid {border}; min-width:280px; cursor:pointer;";
+    }
+
+    private Card? CardForId(int cardId)
+    {
+        if (_cards is null) return null;
+        int idx = cardId - 1;
+        return idx >= 0 && idx < _cards.Count ? _cards[idx] : null;
+    }
+
+    private async Task ShowCardDetails(Card c)
+    {
+        var parameters = new DialogParameters { ["Card"] = c };
+        var options = new DialogOptions
+        {
+            CloseButton  = true,
+            MaxWidth     = MaxWidth.Medium,
+            FullWidth    = true,
+            BackdropClick = true,
+        };
+        await DialogService.ShowAsync<CardDetailDialog>(c.Name, parameters, options);
+    }
+
+    private async Task ShowCardBranches(Card c)
+    {
+        if (_allSequences is null || _cards is null) return;
+        var parameters = new DialogParameters
+        {
+            ["Card"]      = c,
+            ["Sequences"] = _allSequences,
+            ["AllCards"]  = _cards,
+        };
+        var options = new DialogOptions
+        {
+            CloseButton  = true,
+            MaxWidth     = MaxWidth.ExtraLarge,
+            FullWidth    = true,
+            BackdropClick = true,
+        };
+        await DialogService.ShowAsync<CardBranchesDialog>(
+            $"Caminhos: {c.Name}", parameters, options);
+    }
+
+    private async Task CalculateFusions()
+    {
+        if (_selectedSave is null || _cards is null) return;
+
+        _isCalculating = true;
+        _allSequences  = null;
+
+        try
+        {
+            // Hand = unique 0-based card indices from save (engine doesn't dup-check counts)
+            var hand = _selectedSave.Cards
+                .Select(e => e.CardId - 1)
+                .Where(idx => idx >= 0 && idx < _cards.Count)
+                .Distinct()
+                .ToList();
+
+            var sequences = await Task.Run(() =>
+                GetFusionsUseCase.Execute(hand, _cards));
+
+            _allSequences = sequences;
+
+            Snackbar.Add(
+                sequences.Count == 0
+                    ? "Nenhuma fusão possível."
+                    : $"{sequences.Count} caminho(s) de fusão encontrados.",
+                sequences.Count == 0 ? Severity.Info : Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isCalculating = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

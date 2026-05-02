@@ -55,7 +55,13 @@
 
                 <g opacity="@F(op)"
                    style="cursor:pointer;"
-                   @onclick="@(() => OnCardClickedInternal(card))">
+                   @onclick="@(() => OnCardClickedInternal(card))"
+                   @onmousedown="@(() => StartCardLongPress(card))"
+                   @onmouseup="CancelCardLongPress"
+                   @onmouseleave="CancelCardLongPress"
+                   @ontouchstart="@(() => StartCardLongPress(card))"
+                   @ontouchend="CancelCardLongPress"
+                   @ontouchcancel="CancelCardLongPress">
                     @if (card != null)
                     {
                         <image href="@CardImage.Url(card.CardId)"
@@ -110,7 +116,10 @@
     [Parameter, EditorRequired] public IEnumerable<FusionSequence> Sequences { get; set; } = [];
     [Parameter, EditorRequired] public IReadOnlyList<Card> AllCards { get; set; } = [];
     [Parameter] public double Zoom { get; set; } = 1.0;
+    /// <summary>Single click on a card.</summary>
     [Parameter] public EventCallback<Card> OnCardClicked { get; set; }
+    /// <summary>Long press (3s) on a card.</summary>
+    [Parameter] public EventCallback<Card> OnCardLongClicked { get; set; }
 
     private GraphLayoutResult? _layout;
     private readonly string _id = Guid.NewGuid().ToString("N")[..8];
@@ -133,8 +142,40 @@
         _highlightedNodes = [];
     }
 
+    // ── Click vs long-press handling ────────────────────────────
+    private CancellationTokenSource? _cardPressCts;
+    private bool _cardLongFired;
+    private const int CardLongPressMs = 3000;
+
+    private async Task StartCardLongPress(Card? card)
+    {
+        if (card is null) return;
+        CancelCardLongPress();
+        _cardLongFired = false;
+        _cardPressCts = new CancellationTokenSource();
+        var token = _cardPressCts.Token;
+        try
+        {
+            await Task.Delay(CardLongPressMs, token);
+            _cardLongFired = true;
+            if (OnCardLongClicked.HasDelegate)
+                await OnCardLongClicked.InvokeAsync(card);
+        }
+        catch (TaskCanceledException) { }
+        catch (OperationCanceledException) { }
+    }
+
+    private void CancelCardLongPress()
+    {
+        _cardPressCts?.Cancel();
+        _cardPressCts?.Dispose();
+        _cardPressCts = null;
+    }
+
     private async Task OnCardClickedInternal(Card? card)
     {
+        // Suppress click if long-press fired
+        if (_cardLongFired) { _cardLongFired = false; return; }
         if (card is null) return;
         if (OnCardClicked.HasDelegate)
             await OnCardClicked.InvokeAsync(card);
