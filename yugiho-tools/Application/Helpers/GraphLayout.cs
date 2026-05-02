@@ -27,19 +27,20 @@ public record GraphLayoutResult(
     double Height);
 
 /// <summary>
-/// Top-to-bottom DAG layout merging all fusion sequences in a hand.
+/// Top-to-bottom DAG layout merging all monster fusion sequences in a hand.
 /// Pure inputs sit at the top row, intermediates in the middle, final cards
 /// at the bottom — every card appears once, sharing branches across paths.
 /// </summary>
 public static class GraphLayout
 {
-    public const double NodeW = 130;
-    public const double NodeH = 110;
+    // Native source size of the card images served by basededatostea.xyz.
+    public const double NodeW = 271;
+    public const double NodeH = 386;
     public const double ColGap = 60;
-    public const double RowGap = 110;
+    public const double RowGap = 140;
     public const double PadX = 24;
     public const double PadY = 24;
-    public const double JunctionR = 11;
+    public const double JunctionR = 14;
 
     public static GraphLayoutResult Build(
         IEnumerable<FusionSequence> sequences,
@@ -47,12 +48,15 @@ public static class GraphLayout
     {
         var seqList = sequences.ToList();
 
-        // Distinct fusion steps (a+b=r normalized so a<=b)
+        // Distinct fusion steps (a+b=r normalized so a<=b).
+        // Equip-style steps (where one material equals the result) are skipped —
+        // they don't produce a new card and just create a self-loop in the DAG.
         var stepKeys = new HashSet<(string A, string B, string R)>();
         var distinctSteps = new List<(string A, string B, string R)>();
         foreach (var seq in seqList)
             foreach (var s in seq.Steps)
             {
+                if (s.Card1 == s.Result || s.Card2 == s.Result) continue;
                 var (a, b) = string.Compare(s.Card1, s.Card2, StringComparison.Ordinal) <= 0
                     ? (s.Card1, s.Card2) : (s.Card2, s.Card1);
                 var key = (a, b, s.Result);
@@ -110,10 +114,6 @@ public static class GraphLayout
         foreach (var n in allNames)
             layer.TryAdd(n, 0);
 
-        // Row 0 = pure base cards (no predecessors).
-        // Row N = result of fusion(s) at depth N (longest path from any base).
-        // We deliberately do NOT push inputs forward nor pin finals to the last row,
-        // so base cards always sit together at the top.
         int maxLayer = layer.Values.DefaultIfEmpty(0).Max();
 
         // Group by row
@@ -172,7 +172,6 @@ public static class GraphLayout
             double rowY = PadY + l * (NodeH + RowGap);
             var rowNames = byRow[l];
 
-            // Desired top-left X = avg(predecessor center) - NodeW/2
             double DesiredX(string n)
             {
                 var ps = preds[n].Where(p => nodes.ContainsKey(p)).ToList();
@@ -181,10 +180,8 @@ public static class GraphLayout
                 return avgCenter - NodeW / 2;
             }
 
-            // Sort by desired X to keep order consistent with predecessors
             var ordered = rowNames.OrderBy(DesiredX).ThenBy(n => n).ToList();
 
-            // Pass 1: left→right, push right to avoid overlap
             var x = new Dictionary<string, double>();
             double prevRight = double.MinValue;
             foreach (var n in ordered)

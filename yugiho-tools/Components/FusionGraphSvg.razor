@@ -7,8 +7,8 @@
     <div style="width:100%; max-height:75vh; overflow:auto;
                 background:#0a0a18; border-radius:6px; padding:8px;">
         <svg xmlns="http://www.w3.org/2000/svg"
-             width="@F(_layout.Width)"
-             height="@F(_layout.Height)"
+             width="@F(_layout.Width * Zoom)"
+             height="@F(_layout.Height * Zoom)"
              viewBox="0 0 @F(_layout.Width) @F(_layout.Height)"
              style="display:block;">
 
@@ -23,95 +23,83 @@
                 }
             </defs>
 
-            @* Material → Junction edges (unique color per fusion pair) *@
+            @* Material → Junction edges *@
             @for (int ji = 0; ji < _layout.Junctions.Count; ji++)
             {
                 var j = _layout.Junctions[ji];
                 var color = PairColor(ji, _layout.Junctions.Count);
+                var op = JunctionOpacity(ji);
                 @DrawCurve(j.Mat1.X + GraphLayout.NodeW / 2, j.Mat1.Y + GraphLayout.NodeH,
-                           j.X, j.Y, color, "2", false)
+                           j.X, j.Y, color, "2", false, op: op)
                 @DrawCurve(j.Mat2.X + GraphLayout.NodeW / 2, j.Mat2.Y + GraphLayout.NodeH,
-                           j.X, j.Y, color, "2", false)
+                           j.X, j.Y, color, "2", false, op: op)
             }
 
-            @* Junction → Result edges (with arrow, same pair color) *@
+            @* Junction → Result edges (with arrow) *@
             @for (int ji = 0; ji < _layout.Junctions.Count; ji++)
             {
                 var j = _layout.Junctions[ji];
                 var color = PairColor(ji, _layout.Junctions.Count);
+                var op = JunctionOpacity(ji);
                 @DrawCurve(j.X, j.Y,
                            j.Result.X + GraphLayout.NodeW / 2, j.Result.Y,
-                           color, "2.5", true, ji)
+                           color, "2.5", true, ji, op)
             }
 
-            @* Junction circles (colored ring) *@
+            @* Card nodes — full card image from CDN, click opens detail *@
+            @foreach (var node in _layout.Nodes)
+            {
+                var (_, stroke, strokeW) = NodeStyle(node.Role);
+                var op = NodeOpacity(node.Name);
+                var card = node.Card;
+
+                <g opacity="@F(op)"
+                   style="cursor:pointer;"
+                   @onclick="@(() => OnCardClickedInternal(card))">
+                    @if (card != null)
+                    {
+                        <image href="@CardImage.Url(card.CardId)"
+                               x="@F(node.X)" y="@F(node.Y)"
+                               width="@F(GraphLayout.NodeW)" height="@F(GraphLayout.NodeH)"
+                               preserveAspectRatio="xMidYMid meet" />
+                    }
+                    else
+                    {
+                        <rect x="@F(node.X)" y="@F(node.Y)"
+                              width="@F(GraphLayout.NodeW)" height="@F(GraphLayout.NodeH)"
+                              rx="6" ry="6" fill="#141428" />
+                    }
+
+                    <rect x="@F(node.X)" y="@F(node.Y)"
+                          width="@F(GraphLayout.NodeW)" height="@F(GraphLayout.NodeH)"
+                          rx="6" ry="6"
+                          fill="none" stroke="@stroke" stroke-width="@strokeW" />
+
+                    <title>@($"{node.Name}{(card != null ? $" — ATK {card.Attack} / DEF {card.Defense}" : "")}")</title>
+                </g>
+            }
+
+            @* Junction circles *@
             @for (int ji = 0; ji < _layout.Junctions.Count; ji++)
             {
                 var j = _layout.Junctions[ji];
                 var color = PairColor(ji, _layout.Junctions.Count);
-                <g>
+                var op = JunctionOpacity(ji);
+                var idx = ji;
+
+                <g opacity="@F(op)"
+                   style="cursor:pointer;"
+                   @onmouseover="() => OnJunctionEnter(idx)"
+                   @onmouseout="OnJunctionLeave">
+                    <circle cx="@F(j.X)" cy="@F(j.Y)" r="@F(GraphLayout.JunctionR + 6)"
+                            fill="transparent" />
                     <circle cx="@F(j.X)" cy="@F(j.Y)" r="@F(GraphLayout.JunctionR)"
                             fill="#0a0a18" stroke="@color" stroke-width="2.5" />
                     <text x="@F(j.X)" y="@F(j.Y + 4)" text-anchor="middle"
                           font-size="13" font-weight="700" fill="@color"
-                          font-family="Roboto, sans-serif">+</text>
-                    <title>@($"{j.Mat1.Name} + {j.Mat2.Name} = {j.Result.Name}")</title>
-                </g>
-            }
-
-            @* Card nodes *@
-            @foreach (var node in _layout.Nodes)
-            {
-                var (fill, stroke, strokeW) = NodeStyle(node.Role);
-                var imgX = node.X + (GraphLayout.NodeW - 80) / 2;
-                var imgY = node.Y + 6;
-
-                <g>
-                    <rect x="@F(node.X)" y="@F(node.Y)"
-                          width="@F(GraphLayout.NodeW)" height="@F(GraphLayout.NodeH)"
-                          rx="6" ry="6"
-                          fill="@fill" stroke="@stroke" stroke-width="@strokeW" />
-
-                    @if (node.Card?.ThumbnailDataUrl != null)
-                    {
-                        <image href="@node.Card.ThumbnailDataUrl"
-                               x="@F(imgX)" y="@F(imgY)" width="80" height="64"
-                               preserveAspectRatio="xMidYMid meet"
-                               style="image-rendering:pixelated;" />
-                    }
-                    else
-                    {
-                        <rect x="@F(imgX)" y="@F(imgY)" width="80" height="64"
-                              fill="#222" stroke="#444" />
-                    }
-
-                    <text x="@F(node.X + GraphLayout.NodeW / 2)"
-                          y="@F(node.Y + 84)"
-                          text-anchor="middle"
-                          font-size="10"
                           font-family="Roboto, sans-serif"
-                          fill="@TextColor(node.Role)"
-                          font-weight="@(node.Role == NodeRole.Final ? "700" : "500")">
-                        @Truncate(node.Name, 20)
-                    </text>
-
-                    @if (node.Card != null)
-                    {
-                        <g>
-                            <text x="@F(node.X + GraphLayout.NodeW / 2)"
-                                  y="@F(node.Y + 100)"
-                                  text-anchor="middle"
-                                  font-size="9"
-                                  font-family="Roboto, sans-serif"
-                                  fill="#888">
-                                <tspan fill="#c8a415" font-weight="700">@node.Card.Attack</tspan>
-                                <tspan fill="#666"> / </tspan>
-                                <tspan fill="#64b5f6" font-weight="700">@node.Card.Defense</tspan>
-                            </text>
-                        </g>
-                    }
-
-                    <title>@($"{node.Name}{(node.Card != null ? $" — ATK {node.Card.Attack} / DEF {node.Card.Defense}" : "")}")</title>
+                          style="pointer-events:none;">+</text>
+                    <title>@($"{j.Mat1.Name} + {j.Mat2.Name} = {j.Result.Name}")</title>
                 </g>
             }
         </svg>
@@ -121,24 +109,97 @@
 @code {
     [Parameter, EditorRequired] public IEnumerable<FusionSequence> Sequences { get; set; } = [];
     [Parameter, EditorRequired] public IReadOnlyList<Card> AllCards { get; set; } = [];
+    [Parameter] public double Zoom { get; set; } = 1.0;
+    [Parameter] public EventCallback<Card> OnCardClicked { get; set; }
 
     private GraphLayoutResult? _layout;
     private readonly string _id = Guid.NewGuid().ToString("N")[..8];
     private static readonly System.Globalization.CultureInfo _inv = System.Globalization.CultureInfo.InvariantCulture;
+
+    private int? _hoveredJunctionIndex;
+    private HashSet<int> _highlightedJunctions = [];
+    private HashSet<string> _highlightedNodes = [];
+
+    private const double FadedOpacity = 0.15;
 
     protected override void OnParametersSet()
     {
         var byName = new Dictionary<string, Card>();
         foreach (var c in AllCards) byName.TryAdd(c.Name, c);
         _layout = GraphLayout.Build(Sequences, byName);
+
+        _hoveredJunctionIndex = null;
+        _highlightedJunctions = [];
+        _highlightedNodes = [];
     }
+
+    private async Task OnCardClickedInternal(Card? card)
+    {
+        if (card is null) return;
+        if (OnCardClicked.HasDelegate)
+            await OnCardClicked.InvokeAsync(card);
+    }
+
+    private void OnJunctionEnter(int idx)
+    {
+        if (_layout is null || idx < 0 || idx >= _layout.Junctions.Count) return;
+
+        var producers = new Dictionary<string, List<int>>();
+        for (int i = 0; i < _layout.Junctions.Count; i++)
+        {
+            var key = _layout.Junctions[i].Result.Name;
+            if (!producers.TryGetValue(key, out var list))
+                producers[key] = list = [];
+            list.Add(i);
+        }
+
+        var jset = new HashSet<int> { idx };
+        var nset = new HashSet<string>();
+        var stack = new Stack<int>();
+        stack.Push(idx);
+
+        while (stack.Count > 0)
+        {
+            var ji = stack.Pop();
+            var j = _layout.Junctions[ji];
+            nset.Add(j.Result.Name);
+            nset.Add(j.Mat1.Name);
+            nset.Add(j.Mat2.Name);
+
+            foreach (var matName in new[] { j.Mat1.Name, j.Mat2.Name })
+            {
+                if (producers.TryGetValue(matName, out var prodList))
+                    foreach (var pi in prodList)
+                        if (jset.Add(pi)) stack.Push(pi);
+            }
+        }
+
+        _hoveredJunctionIndex = idx;
+        _highlightedJunctions = jset;
+        _highlightedNodes = nset;
+    }
+
+    private void OnJunctionLeave()
+    {
+        _hoveredJunctionIndex = null;
+        _highlightedJunctions = [];
+        _highlightedNodes = [];
+    }
+
+    private double NodeOpacity(string name) =>
+        _hoveredJunctionIndex is null ? 1.0
+        : _highlightedNodes.Contains(name) ? 1.0 : FadedOpacity;
+
+    private double JunctionOpacity(int idx) =>
+        _hoveredJunctionIndex is null ? 1.0
+        : _highlightedJunctions.Contains(idx) ? 1.0 : FadedOpacity;
 
     private static string F(double v) => v.ToString("0.##", _inv);
 
     private RenderFragment DrawCurve(double sx, double sy, double tx, double ty,
-        string color, string width, bool arrow, int junctionIndex = 0) => __builder =>
+        string color, string width, bool arrow, int junctionIndex = 0,
+        double op = 1.0) => __builder =>
     {
-        // Vertical S-curve: control points share x with endpoints, y at midline
         double cy = (sy + ty) / 2;
         double endY = arrow ? ty - 6 : ty;
         var d = $"M {F(sx)} {F(sy)} C {F(sx)} {F(cy)}, {F(tx)} {F(cy)}, {F(tx)} {F(endY)}";
@@ -147,7 +208,7 @@
         __builder.AddAttribute(2, "fill", "none");
         __builder.AddAttribute(3, "stroke", color);
         __builder.AddAttribute(4, "stroke-width", width);
-        __builder.AddAttribute(5, "opacity", "0.9");
+        __builder.AddAttribute(5, "opacity", F(0.9 * op));
         __builder.AddAttribute(6, "stroke-linecap", "round");
         if (arrow) __builder.AddAttribute(7, "marker-end", $"url(#arrow_{_id}_{junctionIndex})");
         __builder.CloseElement();
@@ -155,7 +216,6 @@
 
     private static string PairColor(int index, int total)
     {
-        // Spread hues evenly around the wheel; use a golden-angle offset for nicer separation.
         double hue = (index * 137.508) % 360;
         return $"hsl({hue.ToString("0.##", _inv)}, 65%, 60%)";
     }
@@ -163,19 +223,8 @@
     private static (string Fill, string Stroke, string StrokeWidth) NodeStyle(NodeRole role) =>
         role switch
         {
-            NodeRole.Final        => ("#2a1a00", "#c8a415", "2"),
-            NodeRole.Intermediate => ("#1a1035", "#6a3aae", "1.5"),
-            _                     => ("#141428", "#2a5a8e", "1"),
+            NodeRole.Final        => ("#2a1a00", "#c8a415", "3"),
+            NodeRole.Intermediate => ("#1a1035", "#6a3aae", "2.5"),
+            _                     => ("#141428", "#2a5a8e", "2"),
         };
-
-    private static string TextColor(NodeRole role) =>
-        role switch
-        {
-            NodeRole.Final        => "#c8a415",
-            NodeRole.Intermediate => "#c0a0ff",
-            _                     => "#e0e0e0",
-        };
-
-    private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..(max - 1)] + "…";
 }

@@ -1,8 +1,3 @@
-using System.Drawing;
-using System.Drawing.Imaging;
-using Color = System.Drawing.Color;
-using ImageFormat = System.Drawing.Imaging.ImageFormat;
-
 namespace yugiho_tools.Domain.Entities;
 
 public class Card()
@@ -22,10 +17,8 @@ public class Card()
     public List<int> FusionMaterials { get; set; } = [];
     public List<int> FusionResults { get; set; } = [];
 
-    // Raw grayscale pixels (40×32) for template matching
+    // Raw grayscale pixels (40×32) for OpenCV template matching
     public byte[]? ThumbnailPixels { get; set; }
-    // "data:image/png;base64,..." for SVG graph display
-    public string? ThumbnailDataUrl { get; set; }
 
     public string GetTitle() =>
         $"{Name} ({Attack} | {Defense})\t{GuardianStarName(GuardianStar1)} | {GuardianStarName(GuardianStar2)}";

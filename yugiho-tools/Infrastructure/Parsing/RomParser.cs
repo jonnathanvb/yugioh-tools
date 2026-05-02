@@ -1,10 +1,6 @@
 using System.Buffers.Binary;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 using yugiho_tools.Domain.Entities;
 using yugiho_tools.Domain.Interfaces;
-using ImageFormat = System.Drawing.Imaging.ImageFormat;
 
 namespace yugiho_tools.Infrastructure.Parsing;
 
@@ -159,7 +155,6 @@ public class RomParser : IRomParser
             var clut   = mrg.AsSpan(pixelStart + ThumbPixelCount, ClutSize);
 
             var gray = new byte[ThumbPixelCount];
-            var bgra = new byte[ThumbPixelCount * 4];
             for (int p = 0; p < ThumbPixelCount; p++)
             {
                 ushort color = BinaryPrimitives.ReadUInt16LittleEndian(clut.Slice(pixels[p] * 2, 2));
@@ -167,43 +162,9 @@ public class RomParser : IRomParser
                 byte g = (byte)((color >> 5 & 31) * 8);
                 byte b = (byte)((color >> 10 & 31) * 8);
                 gray[p] = (byte)(0.299 * r + 0.587 * g + 0.114 * b);
-
-                int o = p * 4;
-                bgra[o + 0] = b;
-                bgra[o + 1] = g;
-                bgra[o + 2] = r;
-                bgra[o + 3] = 255;
             }
-            cards[i].ThumbnailPixels  = gray;
-            cards[i].ThumbnailDataUrl = BgraToPngDataUrl(bgra, ThumbWidth, ThumbHeight);
+            cards[i].ThumbnailPixels = gray;
         }
-    }
-
-    private static string BgraToPngDataUrl(byte[] bgra, int width, int height)
-    {
-        using var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-        var rect = new Rectangle(0, 0, width, height);
-        var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        try
-        {
-            if (data.Stride == width * 4)
-            {
-                Marshal.Copy(bgra, 0, data.Scan0, bgra.Length);
-            }
-            else
-            {
-                for (int y = 0; y < height; y++)
-                    Marshal.Copy(bgra, y * width * 4, data.Scan0 + y * data.Stride, width * 4);
-            }
-        }
-        finally
-        {
-            bmp.UnlockBits(data);
-        }
-
-        using var ms = new MemoryStream();
-        bmp.Save(ms, ImageFormat.Png);
-        return "data:image/png;base64," + Convert.ToBase64String(ms.ToArray());
     }
 
     private static async Task<string[]> LoadCharTableAsync(string gameFilePath)

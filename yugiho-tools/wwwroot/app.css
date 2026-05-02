@@ -72,62 +72,50 @@ html, body {
 
 .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-    gap: 8px;
+    grid-template-columns:
+        repeat(auto-fill, minmax(var(--tile-min, 120px), var(--tile-max, 271px)));
+    gap: 10px;
     max-height: 60vh;
     overflow-y: auto;
     padding: 6px;
     background: #0a0a18;
     border: 1px solid #1e1e4a;
     border-radius: 6px;
+    justify-content: start;
 }
 
 .card-tile {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 2px;
-    padding: 6px 4px;
+    display: block;
+    padding: 3px;
     background: #141428;
-    border: 1px solid #2a2a6e;
+    border: 2px solid #2a2a6e;
     border-radius: 6px;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s, transform 0.1s;
     user-select: none;
+    overflow: hidden;
+    max-width: var(--tile-max, 271px);
 }
 
 .card-tile:hover {
     border-color: #c8a415;
-    background: #1a1a3e;
-    transform: translateY(-1px);
+    transform: translateY(-2px);
 }
 
 .card-tile.selected {
     border-color: #4caf50;
     background: #0d2010;
-    border-width: 2px;
-    padding: 5px 3px;
 }
 
-.card-tile-name {
-    font-size: 10px;
-    color: #e0e0e0;
-    text-align: center;
-    line-height: 1.2;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    max-height: 24px;
+.card-tile-img {
     width: 100%;
-}
-
-.card-tile-stats {
-    font-size: 10px;
-    font-family: 'Roboto Mono', monospace;
+    max-width: 271px;
+    aspect-ratio: 271 / 386;
+    object-fit: contain;
+    display: block;
+    border-radius: 3px;
+    background: #0a0a18;
 }
 
 .card-tile-check {
