@@ -1,0 +1,74 @@
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Domain.Entities
+
+<MudDialog Style="background:#0d0d1a;">
+    <DialogContent>
+        <div class="d-flex gap-4 flex-wrap" style="min-width:300px;">
+            <div>
+                <img src="@CardImage.Url(Card.CardId)" alt="@Card.Name"
+                     style="width:271px; max-width:90vw;
+                            aspect-ratio:271/386; object-fit:contain;
+                            border-radius:6px; border:1px solid #2a2a6e;" />
+            </div>
+            <div style="flex:1; min-width:280px;">
+                <MudText Typo="Typo.caption" Style="color:#888;">
+                    #@Card.CardId
+                </MudText>
+                <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                    @Card.Name
+                </MudText>
+
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+
+                <table style="width:100%; color:#e0e0e0; font-size:14px; border-collapse:collapse;">
+                    <tbody>
+                        <tr><td style="@LabelStyle">ATK</td>
+                            <td><span style="color:#c8a415; font-weight:700;">@Card.Attack</span></td></tr>
+                        <tr><td style="@LabelStyle">DEF</td>
+                            <td><span style="color:#64b5f6; font-weight:700;">@Card.Defense</span></td></tr>
+                        <tr><td style="@LabelStyle">Level</td>
+                            <td>@StarString(Card.Level) (@Card.Level)</td></tr>
+                        <tr><td style="@LabelStyle">Type</td>
+                            <td>@CardMetadata.TypeName(Card.CardType) (@Card.CardType)</td></tr>
+                        <tr><td style="@LabelStyle">Attribute</td>
+                            <td>@CardMetadata.AttributeName(Card.Attribute) (@Card.Attribute)</td></tr>
+                        <tr><td style="@LabelStyle">Guardian Stars</td>
+                            <td>@Card.GuardianStarNames[Math.Clamp(Card.GuardianStar1, 0, Card.GuardianStarNames.Length - 1)] /
+                                @Card.GuardianStarNames[Math.Clamp(Card.GuardianStar2, 0, Card.GuardianStarNames.Length - 1)]</td></tr>
+                        <tr><td style="@LabelStyle">Fusões registradas</td>
+                            <td>@Card.FusionCount</td></tr>
+                    </tbody>
+                </table>
+
+                @if (!string.IsNullOrWhiteSpace(Card.Description))
+                {
+                    <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                    <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                        Descrição
+                    </MudText>
+                    <MudText Typo="Typo.body2"
+                             Style="color:#cfcfe0; white-space:pre-wrap;">
+                        @Card.Description
+                    </MudText>
+                }
+            </div>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="Close">Fechar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public Card Card { get; set; } = default!;
+
+    private const string LabelStyle =
+        "color:#888; padding:4px 12px 4px 0; font-weight:500; vertical-align:top; width:160px;";
+
+    private static string StarString(int level) =>
+        string.Concat(Enumerable.Repeat("★", Math.Clamp(level, 0, 12)));
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

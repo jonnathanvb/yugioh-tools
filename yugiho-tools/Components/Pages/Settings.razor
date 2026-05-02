@@ -1,0 +1,158 @@
+@page "/settings"
+@using yugiho_tools.Application.Services
+@using Color = MudBlazor.Color
+@using Size = MudBlazor.Size
+@inject AppSettings Cfg
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
+              Style="max-width:80%; margin-left:auto; margin-right:auto;">
+
+    <div class="d-flex align-center mb-4 gap-2">
+        <MudIcon Icon="@Icons.Material.Filled.Settings"
+                 Style="color:#c8a415; font-size:2rem;" />
+        <div>
+            <MudText Typo="Typo.overline"
+                     Style="color:#888; letter-spacing:2px;">PREFERÊNCIAS</MudText>
+            <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                Configurações
+            </MudText>
+        </div>
+    </div>
+
+    <MudGrid Spacing="3">
+
+        <!-- ─── Catálogo ─────────────────────────────────────────── -->
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.GridView"
+                             Class="mr-1" Size="Size.Small" />
+                    Catálogo de cartas
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudNumericField T="int"
+                                 Value="@_maxGridCards"
+                                 ValueChanged="@OnMaxGridCardsChanged"
+                                 Label="Quantidade máxima de cartas visíveis"
+                                 Variant="Variant.Outlined"
+                                 Min="1" Max="722" Step="10"
+                                 HelperText="@($"Padrão: {AppSettings.DefaultMaxGridCards}. Limita a primeira leva exibida no grid.")" />
+            </MudPaper>
+        </MudItem>
+
+        <!-- ─── Atalho ─────────────────────────────────────────── -->
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Keyboard"
+                             Class="mr-1" Size="Size.Small" />
+                    Atalho de teclado
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <div class="d-flex gap-2 mb-3 align-center">
+                    <MudTextField T="string"
+                                  Value="@_shortcutKey"
+                                  Label="Combinação de teclas"
+                                  Variant="Variant.Outlined"
+                                  ReadOnly="true"
+                                  Style="flex:1;"
+                                  HelperText="@(_recording ? "Pressione a combinação desejada..." : "Clique em Registrar e pressione as teclas.")" />
+                    <input id="shortcut-capture-input"
+                           tabindex="0"
+                           style="position:absolute; left:-9999px; width:1px; height:1px;
+                                  opacity:0; pointer-events:none;" />
+                    <MudButton Variant="Variant.Outlined"
+                               Color="@(_recording ? Color.Warning : Color.Primary)"
+                               StartIcon="@Icons.Material.Filled.RadioButtonChecked"
+                               OnClick="StartRecording"
+                               Disabled="@_recording"
+                               Style="height:56px;">
+                        @(_recording ? "Aguardando..." : "Registrar")
+                    </MudButton>
+                </div>
+
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
+                    Ações disparadas pelo atalho:
+                </MudText>
+
+                <MudCheckBox T="bool"
+                             Value="@_shortcutClearDeck"
+                             ValueChanged="@OnClearDeckChanged"
+                             Color="Color.Primary"
+                             Label="Limpar deck" />
+                <br />
+                <MudCheckBox T="bool"
+                             Value="@_shortcutScanEmulator"
+                             ValueChanged="@OnScanEmulatorChanged"
+                             Color="Color.Primary"
+                             Label="Escanear emulador" />
+                <br />
+                <MudCheckBox T="bool"
+                             Value="@_shortcutCalculateFusions"
+                             ValueChanged="@OnCalculateFusionsChanged"
+                             Color="Color.Primary"
+                             Label="Calcular fusões" />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+</MudContainer>
+
+@code {
+    private int    _maxGridCards;
+    private string _shortcutKey = "";
+    private bool   _shortcutClearDeck;
+    private bool   _shortcutScanEmulator;
+    private bool   _shortcutCalculateFusions;
+    private bool   _recording;
+
+    private DotNetObjectReference<Settings>? _selfRef;
+
+    protected override void OnInitialized()
+    {
+        _maxGridCards             = Cfg.MaxGridCards;
+        _shortcutKey              = Cfg.ShortcutKey;
+        _shortcutClearDeck        = Cfg.ShortcutClearDeck;
+        _shortcutScanEmulator     = Cfg.ShortcutScanEmulator;
+        _shortcutCalculateFusions = Cfg.ShortcutCalculateFusions;
+    }
+
+    private void OnMaxGridCardsChanged(int v)
+    {
+        _maxGridCards = Math.Max(1, v);
+        Cfg.MaxGridCards = _maxGridCards;
+    }
+
+    private void OnClearDeckChanged(bool v)        { _shortcutClearDeck = v;        Cfg.ShortcutClearDeck = v; }
+    private void OnScanEmulatorChanged(bool v)     { _shortcutScanEmulator = v;     Cfg.ShortcutScanEmulator = v; }
+    private void OnCalculateFusionsChanged(bool v) { _shortcutCalculateFusions = v; Cfg.ShortcutCalculateFusions = v; }
+
+    private async Task StartRecording()
+    {
+        _recording = true;
+        _selfRef ??= DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("yugihoKeyboard.captureNext",
+            "shortcut-capture-input", _selfRef);
+    }
+
+    [JSInvokable]
+    public void OnCaptureKey(string combo)
+    {
+        _shortcutKey      = combo;
+        Cfg.ShortcutKey   = combo;
+        _recording        = false;
+        Snackbar.Add($"Atalho registrado: {combo}", Severity.Success);
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
+}

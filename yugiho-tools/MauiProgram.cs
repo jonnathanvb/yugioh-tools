@@ -6,6 +6,7 @@ using yugiho_tools.Domain.Interfaces;
 using yugiho_tools.Infrastructure.CardDetection;
 using yugiho_tools.Infrastructure.Parsing;
 using yugiho_tools.Infrastructure.ScreenCapture;
+using yugiho_tools.Infrastructure.Storage;
 
 namespace yugiho_tools;
 
@@ -26,10 +27,15 @@ public static class MauiProgram
         builder.Services.AddSingleton<IFusionEngine,  FusionEngine>();
         builder.Services.AddSingleton<IScreenCapture, WindowsScreenCapture>();
         builder.Services.AddSingleton<ICardDetector,  OpenCvCardDetector>();
+        builder.Services.AddSingleton<IModRepository, FileModRepository>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.AppSettings>();
 
         builder.Services.AddScoped<LoadRomDataUseCase>();
         builder.Services.AddScoped<GetFusionsFromHandUseCase>();
         builder.Services.AddScoped<DetectHandFromScreenUseCase>();
+        builder.Services.AddScoped<RegisterModUseCase>();
+        builder.Services.AddScoped<ListModsUseCase>();
+        builder.Services.AddScoped<DeleteModUseCase>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

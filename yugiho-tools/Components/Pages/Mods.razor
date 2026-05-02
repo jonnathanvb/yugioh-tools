@@ -1,0 +1,267 @@
+@page "/mods"
+@using yugiho_tools.Domain.Entities
+@using Color = MudBlazor.Color
+@using Size = MudBlazor.Size
+@inject RegisterModUseCase RegisterModUseCase
+@inject ListModsUseCase ListModsUseCase
+@inject DeleteModUseCase DeleteModUseCase
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
+              Style="max-width:80%; margin-left:auto; margin-right:auto;">
+
+    <div class="d-flex align-center mb-4 gap-2">
+        <MudIcon Icon="@Icons.Material.Filled.LibraryBooks"
+                 Style="color:#c8a415; font-size:2rem;" />
+        <div>
+            <MudText Typo="Typo.overline"
+                     Style="color:#888; letter-spacing:2px;">CONFIGURAÇÃO</MudText>
+            <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                Gerenciar MODs
+            </MudText>
+        </div>
+    </div>
+
+    <MudGrid Spacing="3">
+        <!-- ─── Cadastro ────────────────────────────────────────── -->
+        <MudItem xs="12" md="5">
+            <MudPaper Class="pa-4" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.AddCircle"
+                             Class="mr-1" Size="Size.Small" />
+                    Cadastrar novo MOD
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudTextField T="string" @bind-Value="_newName"
+                              Label="Nome do MOD" Variant="Variant.Outlined"
+                              Class="mb-3"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Edit"
+                              HelperText="@HelperSlugText" />
+
+                <div class="@FileZoneClass(_newGamePath)" @onclick="PickGameFile">
+                    <MudPaper Class="pa-3" Elevation="0" Style="background:transparent;">
+                        <div class="d-flex align-center gap-2">
+                            <MudIcon Icon="@Icons.Material.Filled.Memory"
+                                     Style="@FileIconStyle(_newGamePath)" />
+                            <div style="flex:1;">
+                                <MudText Typo="Typo.body2" Style="color:#c8a415; font-weight:700;">
+                                    SLUS_014.11
+                                </MudText>
+                                <MudText Typo="Typo.caption" Style="color:#888;">
+                                    @(_newGamePath != null
+                                        ? Path.GetFileName(_newGamePath)
+                                        : "Selecionar arquivo SLUS")
+                                </MudText>
+                            </div>
+                            @if (_newGamePath != null)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                         Color="Color.Success" />
+                            }
+                        </div>
+                    </MudPaper>
+                </div>
+
+                <div class="@FileZoneClass(_newMrgPath)" @onclick="PickMrgFile" style="margin-top:8px;">
+                    <MudPaper Class="pa-3" Elevation="0" Style="background:transparent;">
+                        <div class="d-flex align-center gap-2">
+                            <MudIcon Icon="@Icons.Material.Filled.Storage"
+                                     Style="@FileIconStyle(_newMrgPath)" />
+                            <div style="flex:1;">
+                                <MudText Typo="Typo.body2" Style="color:#c8a415; font-weight:700;">
+                                    WA_MRG.MRG
+                                </MudText>
+                                <MudText Typo="Typo.caption" Style="color:#888;">
+                                    @(_newMrgPath != null
+                                        ? Path.GetFileName(_newMrgPath)
+                                        : "Selecionar arquivo MRG")
+                                </MudText>
+                            </div>
+                            @if (_newMrgPath != null)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                         Color="Color.Success" />
+                            }
+                        </div>
+                    </MudPaper>
+                </div>
+
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           FullWidth="true" Size="Size.Large"
+                           StartIcon="@Icons.Material.Filled.Save"
+                           OnClick="SaveMod"
+                           Disabled="@(!CanSave || _isSaving)"
+                           Class="mt-4"
+                           Style="font-weight:700; letter-spacing:1px;">
+                    @(_isSaving ? "SALVANDO..." : "CADASTRAR MOD")
+                </MudButton>
+            </MudPaper>
+        </MudItem>
+
+        <!-- ─── Lista ───────────────────────────────────────────── -->
+        <MudItem xs="12" md="7">
+            <MudPaper Class="pa-4" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.Inventory"
+                             Class="mr-1" Size="Size.Small" />
+                    MODs cadastrados (@_mods.Count)
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                @if (_mods.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info"
+                              Style="background:#0d1520; border:1px solid #2a5a8e;">
+                        Nenhum MOD cadastrado ainda. Use o formulário ao lado.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudList T="Mod" Dense="true">
+                        @foreach (var mod in _mods)
+                        {
+                            <MudListItem T="Mod" Style="background:#0a0a18; border:1px solid #1e1e4a;
+                                                        border-radius:6px; margin-bottom:8px;">
+                                <div class="d-flex align-center justify-space-between gap-2">
+                                    <div style="flex:1;">
+                                        <MudText Style="font-weight:700; color:#c8a415;">
+                                            @mod.Name
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Style="color:#888;">
+                                            <code>MOD/@mod.Slug</code> ·
+                                            @mod.GameFileName · @mod.MrgFileName ·
+                                            @mod.CreatedAt.ToString("yyyy-MM-dd HH:mm")
+                                        </MudText>
+                                    </div>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Color="Color.Error" Size="Size.Small"
+                                                   OnClick="() => DeleteMod(mod)" />
+                                </div>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+</MudContainer>
+
+@code {
+    private string? _newName;
+    private string? _newGamePath;
+    private string? _newMrgPath;
+    private bool    _isSaving;
+    private List<Mod> _mods = [];
+
+    private bool CanSave =>
+        !string.IsNullOrWhiteSpace(_newName) &&
+        _newGamePath != null &&
+        _newMrgPath != null;
+
+    private string HelperSlugText =>
+        string.IsNullOrWhiteSpace(_newName)
+            ? "Pasta criada será MOD/<nome_normalizado>"
+            : $"Pasta: MOD/{Slugify(_newName)}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        _mods = (await ListModsUseCase.ExecuteAsync()).ToList();
+    }
+
+    private static string FileZoneClass(string? path) =>
+        "file-drop-zone " + (path != null ? "loaded" : "");
+
+    private static string FileIconStyle(string? path) =>
+        $"font-size:1.6rem; color:{(path != null ? "#4caf50" : "#c8a415")}";
+
+    private static string Slugify(string name) =>
+        yugiho_tools.Infrastructure.Storage.FileModRepository.Slugify(name);
+
+    private async Task PickGameFile()
+    {
+        var fileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+        {
+            { DevicePlatform.WinUI, new[] { ".11", ".bin", "*" } },
+        });
+        var r = await MainThread.InvokeOnMainThreadAsync(() =>
+            FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Selecionar SLUS_014.11",
+                FileTypes   = fileType,
+            }));
+        if (r != null) _newGamePath = r.FullPath;
+    }
+
+    private async Task PickMrgFile()
+    {
+        var fileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+        {
+            { DevicePlatform.WinUI, new[] { ".MRG", ".mrg", "*" } },
+        });
+        var r = await MainThread.InvokeOnMainThreadAsync(() =>
+            FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Selecionar WA_MRG.MRG",
+                FileTypes   = fileType,
+            }));
+        if (r != null) _newMrgPath = r.FullPath;
+    }
+
+    private async Task SaveMod()
+    {
+        if (!CanSave) return;
+        _isSaving = true;
+        try
+        {
+            var mod = await RegisterModUseCase.ExecuteAsync(
+                _newName!, _newGamePath!, _newMrgPath!);
+            Snackbar.Add($"MOD '{mod.Name}' cadastrado em MOD/{mod.Slug}.", Severity.Success);
+
+            _newName = null;
+            _newGamePath = null;
+            _newMrgPath = null;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao cadastrar MOD: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task DeleteMod(Mod mod)
+    {
+        var confirm = await DialogService.ShowMessageBox(
+            "Confirmar remoção",
+            $"Remover o MOD '{mod.Name}' e todos os seus arquivos?",
+            yesText: "Remover", cancelText: "Cancelar");
+        if (confirm != true) return;
+
+        try
+        {
+            await DeleteModUseCase.ExecuteAsync(mod.Slug);
+            Snackbar.Add($"MOD '{mod.Name}' removido.", Severity.Info);
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro: {ex.Message}", Severity.Error);
+        }
+    }
+}

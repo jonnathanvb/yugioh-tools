@@ -13,7 +13,7 @@ namespace yugiho_tools.Infrastructure.CardDetection;
 /// </summary>
 public class OpenCvCardDetector : ICardDetector
 {
-    private const double MatchThreshold = 0.8;
+    private const double MatchThreshold = 0.75;
     private const int TargetWidth  = 320;
     private const int TargetHeight = 240;
     private const int DedupRadius  = 10;

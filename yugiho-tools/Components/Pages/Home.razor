@@ -1,343 +1,350 @@
 @page "/"
-@using System.Drawing
 @using yugiho_tools.Application.DTOs
 @using yugiho_tools.Application.Helpers
+@using yugiho_tools.Domain.Entities
 
 @using Color = MudBlazor.Color
 @using Size = MudBlazor.Size
 @inject LoadRomDataUseCase LoadRomUseCase
 @inject GetFusionsFromHandUseCase GetFusionsUseCase
 @inject DetectHandFromScreenUseCase DetectHandUseCase
+@inject ListModsUseCase ListModsUseCase
+@inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
 @inject yugiho_tools.Domain.Interfaces.IScreenCapture ScreenCapture
+@inject yugiho_tools.Application.Services.AppSettings Settings
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
               Style="max-width:80%; margin-left:auto; margin-right:auto;">
 
-    <!-- ─── File Selection ─────────────────────────────────────────── -->
-    <MudGrid Spacing="4" Class="mb-4">
-        <MudItem xs="12" sm="6">
-            <div class="@FileZoneClass(_gameFilePath)" @onclick="PickGameFile">
-                <MudPaper Class="pa-5" Elevation="0" Style="background:transparent;">
-                    <div class="d-flex flex-column align-center gap-3">
-                        <MudIcon Icon="@Icons.Material.Filled.Memory"
-                                 Style="@FileIconStyle(_gameFilePath)" />
-                        <MudText Typo="Typo.subtitle1"
-                                 Style="font-weight:600; color:#c8a415; letter-spacing:1px;">
-                            SLUS_014.11
-                        </MudText>
-                        <MudText Typo="Typo.caption" Style="color:#888; text-align:center;">
-                            Arquivo principal do jogo (ROM)
-                        </MudText>
-                        @if (_gameFilePath != null)
-                        {
-                            <MudChip T="string" Color="Color.Success" Size="Size.Small"
-                                     Icon="@Icons.Material.Filled.CheckCircle">
-                                @Path.GetFileName(_gameFilePath)
-                            </MudChip>
-                        }
-                        else
-                        {
-                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                       Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.FolderOpen">
-                                Selecionar arquivo
-                            </MudButton>
-                        }
-                    </div>
-                </MudPaper>
-            </div>
+    @if (_mods.Count == 0)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4"
+                  Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
+            <strong>Nenhum MOD cadastrado.</strong>
+            <MudButton Variant="Variant.Text" Color="Color.Primary"
+                       OnClick="@(() => Nav.NavigateTo("/mods"))"
+                       StartIcon="@Icons.Material.Filled.LibraryBooks"
+                       Class="ml-2">
+                Cadastrar agora
+            </MudButton>
+        </MudAlert>
+    }
+
+    <!-- ─── Top row: Mod selector | Emulator detection ────────────────── -->
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <div class="d-flex align-center mb-2 gap-2">
+                    <MudIcon Icon="@Icons.Material.Filled.LibraryBooks"
+                             Style="color:#c8a415;" />
+                    <MudText Typo="Typo.overline"
+                             Style="color:#888; letter-spacing:2px;">MOD</MudText>
+                </div>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudSelect T="string" Value="_selectedSlug"
+                           ValueChanged="OnModChanged"
+                           Label="ROM cadastrada"
+                           Variant="Variant.Outlined"
+                           Disabled="@(_mods.Count == 0 || _isLoading)"
+                           AnchorOrigin="Origin.BottomLeft">
+                    @foreach (var m in _mods)
+                    {
+                        <MudSelectItem T="string" Value="@m.Slug">
+                            @m.Name <span style="color:#666;">— MOD/@m.Slug</span>
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+
+                <div class="d-flex justify-end mt-2">
+                    <MudButton Variant="Variant.Text" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Settings"
+                               OnClick="@(() => Nav.NavigateTo("/mods"))">
+                        Gerenciar MODs
+                    </MudButton>
+                </div>
+
+                @if (_isLoading)
+                {
+                    <MudProgressLinear Value="_loadProgress" Color="Color.Primary"
+                                       Rounded="true" Class="mt-3" />
+                    <MudText Typo="Typo.caption" Style="color:#c8a415;" Class="mt-1">
+                        @_loadingMessage (@_loadProgress%)
+                    </MudText>
+                }
+            </MudPaper>
         </MudItem>
 
-        <MudItem xs="12" sm="6">
-            <div class="@FileZoneClass(_mrgFilePath)" @onclick="PickMrgFile">
-                <MudPaper Class="pa-5" Elevation="0" Style="background:transparent;">
-                    <div class="d-flex flex-column align-center gap-3">
-                        <MudIcon Icon="@Icons.Material.Filled.Storage"
-                                 Style="@FileIconStyle(_mrgFilePath)" />
-                        <MudText Typo="Typo.subtitle1"
-                                 Style="font-weight:600; color:#c8a415; letter-spacing:1px;">
-                            WA_MRG.MRG
-                        </MudText>
-                        <MudText Typo="Typo.caption" Style="color:#888; text-align:center;">
-                            Arquivo de gráficos e dados (MRG)
-                        </MudText>
-                        @if (_mrgFilePath != null)
-                        {
-                            <MudChip T="string" Color="Color.Success" Size="Size.Small"
-                                     Icon="@Icons.Material.Filled.CheckCircle">
-                                @Path.GetFileName(_mrgFilePath)
-                            </MudChip>
-                        }
-                        else
-                        {
-                            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                       Size="Size.Small"
-                                       StartIcon="@Icons.Material.Filled.FolderOpen">
-                                Selecionar arquivo
-                            </MudButton>
-                        }
-                    </div>
-                </MudPaper>
-            </div>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <div class="d-flex align-center mb-2 gap-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Visibility"
+                             Style="color:#c8a415;" />
+                    <MudText Typo="Typo.overline"
+                             Style="color:#888; letter-spacing:2px;">DETECÇÃO PELO EMULADOR</MudText>
+                </div>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudGrid>
+                    <MudItem xs="9">
+                        <MudSelect T="string" @bind-Value="_selectedWindow"
+                                   Label="Janela do emulador (ePSXe)"
+                                   Variant="Variant.Outlined"
+                                   Disabled="@(_cards is null)"
+                                   AnchorOrigin="Origin.BottomLeft">
+                            @foreach (var t in _windowTitles)
+                            {
+                                <MudSelectItem Value="@t">@t</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="3" Class="d-flex align-center">
+                        <MudTooltip Text="Atualizar lista">
+                            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                           Color="Color.Default"
+                                           OnClick="RefreshWindows" />
+                        </MudTooltip>
+                    </MudItem>
+                </MudGrid>
+
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                           FullWidth="true" Size="Size.Large"
+                           StartIcon="@Icons.Material.Filled.CenterFocusStrong"
+                           OnClick="DetectFromEmulator"
+                           Disabled="@(_cards is null || _isAutoDetecting || string.IsNullOrEmpty(_selectedWindow))"
+                           Class="mt-2"
+                           Style="font-weight:700; letter-spacing:1px;">
+                    @(_isAutoDetecting ? "ESCANEANDO..." : "ESCANEAR EMULADOR")
+                </MudButton>
+                @if (_isAutoDetecting)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Secondary"
+                                       Class="mt-2" Rounded="true" />
+                }
+            </MudPaper>
         </MudItem>
     </MudGrid>
 
-    <!-- ─── Loading Progress ───────────────────────────────────────── -->
-    @if (_isLoading)
-    {
-        <MudPaper Class="pa-4 mb-4" Elevation="2"
-                  Style="background:#141428; border:1px solid #2a2a6e;">
-            <MudText Typo="Typo.body2" Class="mb-2" Style="color:#888;">
-                @_loadingMessage
-            </MudText>
-            <MudProgressLinear Value="_loadProgress" Color="Color.Primary"
-                               Rounded="true" Size="Size.Medium" />
-            <MudText Typo="Typo.caption" Style="color:#c8a415;" Class="mt-1">
-                @_loadProgress%
-            </MudText>
-        </MudPaper>
-    }
-
     @if (_cards != null && !_isLoading)
     {
-        <MudAlert Severity="Severity.Success" Dense="true" Class="mb-4"
-                  Style="background:#0d2010; border:1px solid #4caf50; color:#4caf50;">
-            <strong>@_cards.Count cartas carregadas.</strong>
-            &nbsp;Escolha um modo de operação abaixo.
-        </MudAlert>
-
-        <MudPaper Class="pa-4 mb-6" Elevation="3"
+        <!-- ─── MY DECK + Catalog (collapsible) ───────────────────────── -->
+        <MudPaper Class="pa-4 mb-4" Elevation="3"
                   Style="background:#141428; border:1px solid #2a2a6e;">
 
-            <!-- ─── MY DECK (always visible) ───────────────────────── -->
-            <MudPaper Class="pa-3 mb-4" Elevation="0"
-                      Style="background:#0a0a18; border:1px dashed #c8a41560;">
-                <div class="d-flex align-center justify-space-between mb-2 flex-wrap gap-2">
-                    <MudText Typo="Typo.subtitle2" Style="color:#c8a415;">
+            <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
+                <div class="d-flex align-center gap-3 flex-wrap">
+                    <MudButton Variant="Variant.Text" Size="Size.Medium"
+                               StartIcon="@(_deckExpanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                               OnClick="@(() => _deckExpanded = !_deckExpanded)"
+                               Style="color:#c8a415; font-weight:700; letter-spacing:1px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Style" Class="mr-1" />
+                        MY DECK (@_selectedManualCards.Count) · Catálogo
+                    </MudButton>
+
+                    <div class="d-flex align-center gap-1"
+                         title="Zoom das cartas no MY DECK">
                         <MudIcon Icon="@Icons.Material.Filled.Style"
-                                 Size="Size.Small" Class="mr-1" />
-                        MY DECK (@_selectedManualCards.Count)
-                    </MudText>
-                    <div class="d-flex gap-2 flex-wrap">
-                        <MudButton Size="Size.Small" Variant="Variant.Text"
-                                   Color="Color.Default"
-                                   OnClick="ClearSelection"
-                                   Disabled="@(_selectedManualCards.Count == 0)"
-                                   StartIcon="@Icons.Material.Filled.ClearAll">
-                            Limpar
-                        </MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                   Size="Size.Small"
-                                   StartIcon="@Icons.Material.Filled.AccountTree"
-                                   OnClick="GetFusionsManual"
-                                   Disabled="@(_isCalculating || _selectedManualCards.Count == 0)">
-                            @(_isCalculating ? "Calculando..." : "Calcular fusões")
-                        </MudButton>
+                                 Size="Size.Small" Style="color:#888;" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                       Size="Size.Small"
+                                       OnClick="DeckZoomOut"
+                                       Disabled="@(_deckZoom <= DeckZoomMin)" />
+                        <MudText Style="min-width:42px; text-align:center; color:#c8a415; font-size:0.85rem;">
+                            @($"{(int)Math.Round(_deckZoom * 100)}%")
+                        </MudText>
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       Size="Size.Small"
+                                       OnClick="DeckZoomIn"
+                                       Disabled="@(_deckZoom >= DeckZoomMax)" />
                     </div>
                 </div>
 
-                @if (_selectedManualCards.Count == 0)
-                {
-                    <MudText Typo="Typo.caption" Style="color:#666;">
-                        Adicione cartas escaneando o emulador (abaixo) ou clicando nas cartas do catálogo.
-                    </MudText>
-                }
-                else
-                {
-                    <div class="d-flex gap-2 flex-wrap">
-                        @foreach (var c in _selectedManualCards)
-                        {
-                            <div class="cart-item" @onclick="() => RemoveFromHand(c)"
-                                 title="@($"{c.Name} — clique para remover (ATK {c.Attack} / DEF {c.Defense})")">
-                                <img src="@CardImage.Url(c.CardId)"
-                                     style="width:64px;aspect-ratio:271/386;
-                                            max-width:271px;object-fit:contain;
-                                            border-radius:3px;" />
-                                <MudIcon Icon="@Icons.Material.Filled.Close"
-                                         Class="cart-close"
-                                         Size="Size.Small" />
-                            </div>
-                        }
-                    </div>
-                }
-            </MudPaper>
-
-            <!-- ─── Auto-detect from emulator ──────────────────────── -->
-            <MudText Typo="Typo.overline"
-                     Style="color:#888; letter-spacing:2px;">DETECÇÃO PELO EMULADOR</MudText>
-            <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
-            <MudGrid Class="mb-4">
-                <MudItem xs="12" sm="7">
-                    <MudSelect T="string" @bind-Value="_selectedWindow"
-                               Label="Janela do emulador (ePSXe)"
-                               Variant="Variant.Outlined"
-                               AnchorOrigin="Origin.BottomLeft">
-                        @foreach (var t in _windowTitles)
-                        {
-                            <MudSelectItem Value="@t">@t</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="2" sm="1" Class="d-flex align-center justify-center">
-                    <MudTooltip Text="Atualizar lista">
-                        <MudIconButton Icon="@Icons.Material.Filled.Refresh"
-                                       Color="Color.Default"
-                                       OnClick="RefreshWindows" />
-                    </MudTooltip>
-                </MudItem>
-                <MudItem xs="10" sm="4" Class="d-flex align-center">
-                    <MudButton Variant="Variant.Filled" Color="Color.Secondary"
-                               FullWidth="true" Size="Size.Large"
-                               StartIcon="@Icons.Material.Filled.CenterFocusStrong"
-                               OnClick="DetectFromEmulator"
-                               Disabled="@(_isAutoDetecting || string.IsNullOrEmpty(_selectedWindow))"
-                               Style="font-weight:700; letter-spacing:1px;">
-                        @(_isAutoDetecting ? "ESCANEANDO..." : "ESCANEAR")
+                <div class="d-flex gap-2 flex-wrap">
+                    <MudButton Size="Size.Large" Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               OnClick="ClearSelection"
+                               Disabled="@(_selectedManualCards.Count == 0)"
+                               StartIcon="@Icons.Material.Filled.DeleteSweep"
+                               Style="font-weight:700; min-width:140px;">
+                        Limpar deck
                     </MudButton>
-                </MudItem>
-            </MudGrid>
-            @if (_isAutoDetecting)
-            {
-                <MudProgressLinear Indeterminate="true" Color="Color.Secondary"
-                                   Class="mb-3" Rounded="true" />
-            }
-
-            <!-- ─── Filters ────────────────────────────────────────── -->
-            <MudText Typo="Typo.overline"
-                     Style="color:#888; letter-spacing:2px;">CATÁLOGO DE CARTAS</MudText>
-            <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
-
-            <MudGrid Spacing="2" Class="mb-2">
-                <MudItem xs="12" sm="6" md="4">
-                    <MudTextField T="string"
-                                  Value="@_searchTerm"
-                                  ValueChanged="@(v => { _searchTerm = v ?? ""; })"
-                                  Immediate="true"
-                                  Label="Nome, descrição ou #ID"
-                                  Variant="Variant.Outlined"
-                                  Adornment="Adornment.Start"
-                                  AdornmentIcon="@Icons.Material.Filled.Search" />
-                </MudItem>
-                <MudItem xs="6" sm="3" md="2">
-                    <MudSelect T="int?" @bind-Value="_filterType"
-                               Label="Tipo" Variant="Variant.Outlined"
-                               Clearable="true">
-                        @for (int i = 0; i < CardMetadata.TypeNames.Length; i++)
-                        {
-                            int idx = i;
-                            <MudSelectItem T="int?" Value="@((int?)idx)">
-                                @CardMetadata.TypeNames[i]
-                            </MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="6" sm="3" md="2">
-                    <MudSelect T="int?" @bind-Value="_filterAttribute"
-                               Label="Atributo" Variant="Variant.Outlined"
-                               Clearable="true">
-                        @for (int i = 0; i < CardMetadata.AttributeNames.Length; i++)
-                        {
-                            int idx = i;
-                            <MudSelectItem T="int?" Value="@((int?)idx)">
-                                @CardMetadata.AttributeNames[i]
-                            </MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12" sm="6" md="2">
-                    <MudSelect T="CardSortMode" @bind-Value="_sortMode"
-                               Label="Ordenar" Variant="Variant.Outlined">
-                        <MudSelectItem T="CardSortMode" Value="CardSortMode.Default">#ID</MudSelectItem>
-                        <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkDesc">ATK ↓</MudSelectItem>
-                        <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkAsc">ATK ↑</MudSelectItem>
-                        <MudSelectItem T="CardSortMode" Value="CardSortMode.DefDesc">DEF ↓</MudSelectItem>
-                        <MudSelectItem T="CardSortMode" Value="CardSortMode.DefAsc">DEF ↑</MudSelectItem>
-                        <MudSelectItem T="CardSortMode" Value="CardSortMode.Type">Tipo</MudSelectItem>
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12" md="2" Class="d-flex align-center justify-end">
-                    @{
-                        var zoomPct = (int)Math.Round(_cardZoom * 100);
-                    }
-                    <MudIconButton Icon="@Icons.Material.Filled.Remove"
-                                   OnClick="ZoomOut" Color="Color.Default"
-                                   Disabled="@(_cardZoom <= 0.3)" />
-                    <MudText Style="min-width:50px; text-align:center; color:#c8a415;">
-                        @zoomPct%
-                    </MudText>
-                    <MudIconButton Icon="@Icons.Material.Filled.Add"
-                                   OnClick="ZoomIn" Color="Color.Default"
-                                   Disabled="@(_cardZoom >= 2.0)" />
-                </MudItem>
-            </MudGrid>
-
-            <MudGrid Spacing="2" Class="mb-3">
-                <MudItem xs="6" sm="3" md="2">
-                    <MudNumericField T="int?" @bind-Value="_minAtk"
-                                     Label="ATK min" Variant="Variant.Outlined"
-                                     Min="0" Step="100" Clearable="true" />
-                </MudItem>
-                <MudItem xs="6" sm="3" md="2">
-                    <MudNumericField T="int?" @bind-Value="_maxAtk"
-                                     Label="ATK max" Variant="Variant.Outlined"
-                                     Min="0" Step="100" Clearable="true" />
-                </MudItem>
-                <MudItem xs="6" sm="3" md="2">
-                    <MudNumericField T="int?" @bind-Value="_minDef"
-                                     Label="DEF min" Variant="Variant.Outlined"
-                                     Min="0" Step="100" Clearable="true" />
-                </MudItem>
-                <MudItem xs="6" sm="3" md="2">
-                    <MudNumericField T="int?" @bind-Value="_maxDef"
-                                     Label="DEF max" Variant="Variant.Outlined"
-                                     Min="0" Step="100" Clearable="true" />
-                </MudItem>
-                <MudItem xs="12" md="4" Class="d-flex align-center">
-                    <MudSwitch T="bool" @bind-Value="_onlyFusionMaterials"
-                               Color="Color.Primary"
-                               Label="Só cartas usadas em fusão" />
-                </MudItem>
-            </MudGrid>
-
-            @{
-                var filtered = FilteredCards().Take(MaxGridCards).ToList();
-                var totalFiltered = FilteredCardsCount();
-            }
-            <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
-                @filtered.Count de @totalFiltered cartas
-                @(totalFiltered > MaxGridCards ? $" (mostrando primeiras {MaxGridCards} — refine o filtro)" : "")
-            </MudText>
-
-            <div class="card-grid"
-                 style="@($"--tile-min:{TileMinPx}px; --tile-max:{TileMaxPx}px;")">
-                @foreach (var c in filtered)
-                {
-                    var selected = IsInHand(c);
-                    var card = c;
-                    <div class="card-tile @(selected ? "selected" : "")"
-                         @onclick="() => OnTileClick(card)"
-                         @onmousedown="() => StartLongPress(card)"
-                         @onmouseup="CancelLongPress"
-                         @onmouseleave="CancelLongPress"
-                         @ontouchstart="() => StartLongPress(card)"
-                         @ontouchend="CancelLongPress"
-                         @ontouchcancel="CancelLongPress"
-                         title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense} · segure 3s para detalhes")">
-                        <img src="@CardImage.Url(c.CardId)" loading="lazy"
-                             class="card-tile-img" alt="@c.Name" />
-                        @if (selected)
-                        {
-                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
-                                     Class="card-tile-check" />
-                        }
-                    </div>
-                }
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.AutoFixHigh"
+                               OnClick="GetFusionsManual"
+                               Disabled="@(_isCalculating || _selectedManualCards.Count == 0)"
+                               Style="font-weight:700; letter-spacing:1px; min-width:200px;">
+                        @(_isCalculating ? "CALCULANDO..." : "CALCULAR FUSÕES")
+                    </MudButton>
+                </div>
             </div>
+
+            <MudCollapse Expanded="@_deckExpanded">
+                <!-- Cart strip -->
+                <MudPaper Class="pa-3 mb-3" Elevation="0"
+                          Style="background:#0a0a18; border:1px dashed #c8a41560;">
+                    @if (_selectedManualCards.Count == 0)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666;">
+                            Adicione cartas escaneando o emulador (acima) ou clicando nas cartas do catálogo.
+                        </MudText>
+                    }
+                    else
+                    {
+                        <div class="d-flex gap-2 flex-wrap">
+                            @foreach (var c in _selectedManualCards)
+                            {
+                                <div class="cart-item" @onclick="() => RemoveFromHand(c)"
+                                     title="@($"{c.Name} — clique para remover (ATK {c.Attack} / DEF {c.Defense})")">
+                                    <img src="@CardImage.Url(c.CardId)"
+                                         style="@($"width:{DeckCardWidth}px; aspect-ratio:271/386; object-fit:contain; border-radius:3px;")" />
+                                    <MudIcon Icon="@Icons.Material.Filled.Close"
+                                             Class="cart-close"
+                                             Size="Size.Small" />
+                                </div>
+                            }
+                        </div>
+                    }
+                </MudPaper>
+
+                <!-- Filters -->
+                <MudGrid Spacing="2" Class="mb-2">
+                    <MudItem xs="12" sm="6" md="4">
+                        <MudTextField T="string"
+                                      Value="@_searchTerm"
+                                      ValueChanged="@(v => { _searchTerm = v ?? ""; })"
+                                      Immediate="true"
+                                      Label="Nome, descrição ou #ID"
+                                      Variant="Variant.Outlined"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search" />
+                    </MudItem>
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudSelect T="int?" @bind-Value="_filterType"
+                                   Label="Tipo" Variant="Variant.Outlined"
+                                   Clearable="true">
+                            @for (int i = 0; i < CardMetadata.TypeNames.Length; i++)
+                            {
+                                int idx = i;
+                                <MudSelectItem T="int?" Value="@((int?)idx)">
+                                    @CardMetadata.TypeNames[i]
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudSelect T="int?" @bind-Value="_filterAttribute"
+                                   Label="Atributo" Variant="Variant.Outlined"
+                                   Clearable="true">
+                            @for (int i = 0; i < CardMetadata.AttributeNames.Length; i++)
+                            {
+                                int idx = i;
+                                <MudSelectItem T="int?" Value="@((int?)idx)">
+                                    @CardMetadata.AttributeNames[i]
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="2">
+                        <MudSelect T="CardSortMode" @bind-Value="_sortMode"
+                                   Label="Ordenar" Variant="Variant.Outlined">
+                            <MudSelectItem T="CardSortMode" Value="CardSortMode.Default">#ID</MudSelectItem>
+                            <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkDesc">ATK ↓</MudSelectItem>
+                            <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkAsc">ATK ↑</MudSelectItem>
+                            <MudSelectItem T="CardSortMode" Value="CardSortMode.DefDesc">DEF ↓</MudSelectItem>
+                            <MudSelectItem T="CardSortMode" Value="CardSortMode.DefAsc">DEF ↑</MudSelectItem>
+                            <MudSelectItem T="CardSortMode" Value="CardSortMode.Type">Tipo</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="2" Class="d-flex align-center justify-end">
+                        @{
+                            var zoomPct = (int)Math.Round(_cardZoom * 100);
+                        }
+                        <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                       OnClick="ZoomOut" Color="Color.Default"
+                                       Disabled="@(_cardZoom <= 0.3)" />
+                        <MudText Style="min-width:50px; text-align:center; color:#c8a415;">
+                            @zoomPct%
+                        </MudText>
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       OnClick="ZoomIn" Color="Color.Default"
+                                       Disabled="@(_cardZoom >= 2.0)" />
+                    </MudItem>
+                </MudGrid>
+
+                <MudGrid Spacing="2" Class="mb-3">
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudNumericField T="int?" @bind-Value="_minAtk"
+                                         Label="ATK min" Variant="Variant.Outlined"
+                                         Min="0" Step="100" Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudNumericField T="int?" @bind-Value="_maxAtk"
+                                         Label="ATK max" Variant="Variant.Outlined"
+                                         Min="0" Step="100" Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudNumericField T="int?" @bind-Value="_minDef"
+                                         Label="DEF min" Variant="Variant.Outlined"
+                                         Min="0" Step="100" Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="6" sm="3" md="2">
+                        <MudNumericField T="int?" @bind-Value="_maxDef"
+                                         Label="DEF max" Variant="Variant.Outlined"
+                                         Min="0" Step="100" Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="12" md="4" Class="d-flex align-center">
+                        <MudSwitch T="bool" @bind-Value="_onlyFusionMaterials"
+                                   Color="Color.Primary"
+                                   Label="Só cartas usadas em fusão" />
+                    </MudItem>
+                </MudGrid>
+
+                @{
+                    var filtered = FilteredCards().Take(MaxGridCards).ToList();
+                    var totalFiltered = FilteredCardsCount();
+                }
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
+                    @filtered.Count de @totalFiltered cartas
+                    @(totalFiltered > MaxGridCards ? $" (mostrando primeiras {MaxGridCards} — refine o filtro)" : "")
+                </MudText>
+
+                <div class="card-grid"
+                     style="@($"--tile-min:{TileMinPx}px; --tile-max:{TileMaxPx}px;")">
+                    @foreach (var c in filtered)
+                    {
+                        var selected = IsInHand(c);
+                        var card = c;
+                        <div class="card-tile @(selected ? "selected" : "")"
+                             @onclick="() => OnTileClick(card)"
+                             @onmousedown="() => StartLongPress(card)"
+                             @onmouseup="CancelLongPress"
+                             @onmouseleave="CancelLongPress"
+                             @ontouchstart="() => StartLongPress(card)"
+                             @ontouchend="CancelLongPress"
+                             @ontouchcancel="CancelLongPress"
+                             title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense} · segure 3s para detalhes")">
+                            <img src="@CardImage.Url(c.CardId)" loading="lazy"
+                                 class="card-tile-img" alt="@c.Name" />
+                            @if (selected)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                         Class="card-tile-check" />
+                            }
+                        </div>
+                    }
+                </div>
+            </MudCollapse>
         </MudPaper>
 
-        <!-- ─── Results (shared by both tabs) ─────────────────────── -->
+        <!-- ─── Results ─────────────────────────────────────────────── -->
         @if (_allSequences != null)
         {
             <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
@@ -422,11 +429,12 @@
 </MudContainer>
 
 @code {
-    private const int MaxGridCards = 200;
+    private int MaxGridCards => Settings.MaxGridCards;
+    private const string PrefSelectedSlugKey = "yugiho.selectedModSlug";
 
-    // ── File selection ─────────────────────────────────────────────
-    private string? _gameFilePath;
-    private string? _mrgFilePath;
+    // ── Mods ───────────────────────────────────────────────────────
+    private List<Mod> _mods = [];
+    private string?  _selectedSlug;
 
     // ── Loading ────────────────────────────────────────────────────
     private IReadOnlyList<Card>? _cards;
@@ -456,46 +464,89 @@
 
     private HashSet<int>? _fusionMaterialIds;
 
-    // ── Zoom (catalog tiles + fusion graph) ────────────────────────
+    // ── Zoom ───────────────────────────────────────────────────────
     private double _cardZoom = 0.5;
-    private const double ZoomStep = 0.1;
-    private const double ZoomMin  = 0.3;
-    private const double ZoomMax  = 2.0;
+    private double _deckZoom = 0.3;
+    private const double ZoomStep   = 0.1;
+    private const double ZoomMin    = 0.3;
+    private const double ZoomMax    = 2.0;
+    private const double DeckZoomMin = 0.1;
+    private const double DeckZoomMax = 2.0;
     private int TileMinPx => (int)Math.Round(GraphLayout.NodeW * _cardZoom * 0.45);
     private int TileMaxPx => (int)Math.Round(GraphLayout.NodeW * _cardZoom);
+    private int DeckCardWidth => (int)Math.Round(GraphLayout.NodeW * _deckZoom);
 
-    // ── Long press for card details ────────────────────────────────
+    // ── Long press ─────────────────────────────────────────────────
     private CancellationTokenSource? _longPressCts;
     private bool                     _longPressFired;
     private const int                LongPressMs = 1000;
+
+    // ── Deck collapse ──────────────────────────────────────────────
+    private bool _deckExpanded = true;
 
     // ── Results ────────────────────────────────────────────────────
     private IReadOnlyList<FusionSequence>? _allSequences;
     private List<Card>?                    _finalCards;
 
     // ── Lifecycle ──────────────────────────────────────────────────
-    private const string PrefGameKey = "yugiho.gameFilePath";
-    private const string PrefMrgKey  = "yugiho.mrgFilePath";
+    private DotNetObjectReference<Home>? _selfRef;
 
     protected override async Task OnInitializedAsync()
     {
         RefreshWindows();
+        _mods = (await ListModsUseCase.ExecuteAsync()).ToList();
 
-        var g = Preferences.Default.Get(PrefGameKey, "");
-        var m = Preferences.Default.Get(PrefMrgKey, "");
-        if (!string.IsNullOrEmpty(g) && File.Exists(g)) _gameFilePath = g;
-        if (!string.IsNullOrEmpty(m) && File.Exists(m)) _mrgFilePath  = m;
+        var stored = Preferences.Default.Get(PrefSelectedSlugKey, "");
+        var auto = !string.IsNullOrEmpty(stored) && _mods.Any(m => m.Slug == stored)
+            ? stored
+            : _mods.FirstOrDefault()?.Slug;
 
-        if (_gameFilePath != null && _mrgFilePath != null)
-            await LoadCards();
+        if (auto != null)
+            await OnModChanged(auto);
     }
 
-    // ── Helpers ────────────────────────────────────────────────────
-    private static string FileZoneClass(string? path) =>
-        "file-drop-zone " + (path != null ? "loaded" : "");
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("yugihoKeyboard.register", _selfRef);
+        }
+    }
 
-    private static string FileIconStyle(string? path) =>
-        $"font-size:3rem; color:{(path != null ? "#4caf50" : "#c8a415")}";
+    [JSInvokable]
+    public async Task OnGlobalKey(string combo)
+    {
+        if (!string.Equals(combo, Settings.ShortcutKey, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (Settings.ShortcutClearDeck)        ClearSelection();
+        if (Settings.ShortcutScanEmulator)     await DetectFromEmulator();
+        if (Settings.ShortcutCalculateFusions) await GetFusionsManual();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("yugihoKeyboard.unregister");
+        }
+        catch { /* WebView may already be disposed */ }
+        _selfRef?.Dispose();
+    }
+
+    // ── Mod selection ──────────────────────────────────────────────
+    private async Task OnModChanged(string slug)
+    {
+        _selectedSlug = slug;
+        Preferences.Default.Set(PrefSelectedSlugKey, slug ?? "");
+        var mod = _mods.FirstOrDefault(m => m.Slug == slug);
+        if (mod is null) return;
+
+        await LoadCards(mod);
+    }
 
     // ── Window list ────────────────────────────────────────────────
     private void RefreshWindows()
@@ -510,42 +561,8 @@
             _selectedWindow = _windowTitles[0];
     }
 
-    // ── File pickers ───────────────────────────────────────────────
-    private async Task PickGameFile()
-    {
-        var r = await MainThread.InvokeOnMainThreadAsync(() =>
-            FilePicker.Default.PickAsync(new PickOptions
-            {
-                PickerTitle = "Selecionar SLUS_014.11"
-            }));
-        if (r is null) return;
-        _gameFilePath = r.FullPath;
-        Preferences.Default.Set(PrefGameKey, _gameFilePath);
-        await TryAutoLoad();
-    }
-
-    private async Task PickMrgFile()
-    {
-        var r = await MainThread.InvokeOnMainThreadAsync(() =>
-            FilePicker.Default.PickAsync(new PickOptions
-            {
-                PickerTitle = "Selecionar WA_MRG.MRG"
-            }));
-        if (r is null) return;
-        _mrgFilePath = r.FullPath;
-        Preferences.Default.Set(PrefMrgKey, _mrgFilePath);
-        await TryAutoLoad();
-    }
-
-    private async Task TryAutoLoad()
-    {
-        StateHasChanged();
-        if (_gameFilePath is null || _mrgFilePath is null) return;
-        await LoadCards();
-    }
-
     // ── Load ROM ───────────────────────────────────────────────────
-    private async Task LoadCards()
+    private async Task LoadCards(Mod mod)
     {
         _isLoading     = true;
         _loadProgress  = 0;
@@ -562,25 +579,24 @@
                 _loadProgress   = p;
                 _loadingMessage = p < 20 ? "Lendo arquivos ROM..."
                                 : p < 30 ? "Decodificando cartas..."
-                                : p < 95 ? $"Carregando thumbnails... {p}%"
+                                : p < 95 ? $"Carregando thumbnails..."
                                          : "Finalizando...";
                 InvokeAsync(StateHasChanged);
             });
 
             _cards = await LoadRomUseCase.ExecuteAsync(
-                _gameFilePath!, _mrgFilePath!, loadThumbnails: true, progress);
+                ModRepo.GetGameFilePath(mod),
+                ModRepo.GetMrgFilePath(mod),
+                loadThumbnails: true,
+                progress);
 
             BuildFusionMaterialIndex();
 
-            Snackbar.Add($"{_cards.Count} cartas carregadas!", Severity.Success);
+            Snackbar.Add($"MOD '{mod.Name}': {_cards.Count} cartas carregadas.", Severity.Success);
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Erro ao carregar ROM: {ex.Message}", Severity.Error);
-            _gameFilePath = null;
-            _mrgFilePath  = null;
-            Preferences.Default.Remove(PrefGameKey);
-            Preferences.Default.Remove(PrefMrgKey);
+            Snackbar.Add($"Erro ao carregar MOD: {ex.Message}", Severity.Error);
         }
         finally
         {
@@ -664,6 +680,8 @@
     // ── Zoom ───────────────────────────────────────────────────────
     private void ZoomIn()  => _cardZoom = Math.Min(ZoomMax, Math.Round(_cardZoom + ZoomStep, 2));
     private void ZoomOut() => _cardZoom = Math.Max(ZoomMin, Math.Round(_cardZoom - ZoomStep, 2));
+    private void DeckZoomIn()  => _deckZoom = Math.Min(DeckZoomMax, Math.Round(_deckZoom + ZoomStep, 2));
+    private void DeckZoomOut() => _deckZoom = Math.Max(DeckZoomMin, Math.Round(_deckZoom - ZoomStep, 2));
 
     // ── Long press / click ─────────────────────────────────────────
     private async Task StartLongPress(Card c)
@@ -692,11 +710,7 @@
 
     private void OnTileClick(Card c)
     {
-        if (_longPressFired)
-        {
-            _longPressFired = false;
-            return;
-        }
+        if (_longPressFired) { _longPressFired = false; return; }
         AddToHand(c);
     }
 
@@ -705,15 +719,15 @@
         var parameters = new DialogParameters { ["Card"] = c };
         var options = new DialogOptions
         {
-            CloseButton = true,
-            MaxWidth    = MaxWidth.Medium,
-            FullWidth   = true,
+            CloseButton  = true,
+            MaxWidth     = MaxWidth.Medium,
+            FullWidth    = true,
             BackdropClick = true,
         };
         await DialogService.ShowAsync<CardDetailDialog>(c.Name, parameters, options);
     }
 
-    // ── Detect from emulator: only adds detected cards to the deck ─
+    // ── Detect from emulator ───────────────────────────────────────
     private async Task DetectFromEmulator()
     {
         if (_cards is null) return;
@@ -758,19 +772,21 @@
         }
     }
 
-    // ── Calculate fusions from current deck ────────────────────────
+    // ── Calculate fusions ──────────────────────────────────────────
     private async Task GetFusionsManual()
     {
         if (_cards is null || _selectedManualCards.Count == 0) return;
 
         _isCalculating = true;
-        _allSequences  = null;
-        _finalCards    = null;
+        _allSequences = null;
+        _finalCards   = null;
 
         try
         {
             var hand = _selectedManualCards.Select(c => c.CardId - 1).ToList();
             await ComputeAndShowFusions(hand);
+            // Auto-collapse deck after computing so the graph gets focus
+            _deckExpanded = false;
         }
         catch (Exception ex)
         {

@@ -6,15 +6,50 @@
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="4" Style="background: linear-gradient(90deg, #0d0d1a 0%, #1a1a3e 100%); border-bottom: 1px solid #c8a415;">
-        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Style="color:#c8a415;" Class="mr-2" />
-        <MudText Typo="Typo.h6" Style="font-weight:700; letter-spacing:1px; color:#c8a415;">
+    <MudAppBar Elevation="4"
+               Style="background: linear-gradient(90deg, #0d0d1a 0%, #1a1a3e 100%); border-bottom: 1px solid #c8a415;">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                       Color="Color.Inherit"
+                       Edge="Edge.Start"
+                       OnClick="@ToggleDrawer" />
+        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome"
+                 Style="color:#c8a415;" Class="mr-2 ml-2" />
+        <MudText Typo="Typo.h6"
+                 Style="font-weight:700; letter-spacing:1px; color:#c8a415;">
             YU-GI-OH! FORBIDDEN MEMORIES Tools Fusion
         </MudText>
-        <MudText Typo="Typo.caption" Class="ml-2" Style="color:#888; align-self:flex-end; margin-bottom:3px;">
+        <MudSpacer />
+        <MudText Typo="Typo.caption" Style="color:#888;">
             jonnathanvb
         </MudText>
     </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen"
+               ClipMode="DrawerClipMode.Always"
+               Elevation="2" Variant="DrawerVariant.Mini"
+               OpenMiniOnHover="true"
+               Style="background:#0d0d1a; border-right:1px solid #2a2a6e; padding-top:24px;">
+        <MudNavMenu Class="nav-menu-spaced">
+            <MudNavLink Href="/" Match="NavLinkMatch.All"
+                        Icon="@Icons.Material.Filled.AccountTree"
+                        IconColor="Color.Primary"
+                        Class="my-2 py-3">
+                Fusões
+            </MudNavLink>
+            <MudNavLink Href="/mods"
+                        Icon="@Icons.Material.Filled.LibraryBooks"
+                        IconColor="Color.Primary"
+                        Class="my-2 py-3">
+                MODs
+            </MudNavLink>
+            <MudNavLink Href="/settings"
+                        Icon="@Icons.Material.Filled.Settings"
+                        IconColor="Color.Primary"
+                        Class="my-2 py-3">
+                Configurações
+            </MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
 
     <MudMainContent Class="pt-16" Style="background: #0d0d1a; min-height: 100vh;">
         @Body
@@ -22,6 +57,9 @@
 </MudLayout>
 
 @code {
+    private bool _drawerOpen = true;
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
     private readonly MudTheme _theme = new()
     {
         PaletteLight = new PaletteLight
