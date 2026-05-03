@@ -1,0 +1,128 @@
+@using yugiho_tools.Application.DTOs
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+@using Color = MudBlazor.Color
+@inject CurrentModContext ModContext
+
+<MudDialog Style="background:#0d0d1a;">
+    <DialogContent>
+        <div class="d-flex align-center gap-3 mb-2 flex-wrap">
+            <MudChip T="string" Size="Size.Small"
+                     Style="background:#1a1035; color:#c0a0ff; border:1px solid #6a3aae; font-weight:700;">
+                Etapa @Step
+            </MudChip>
+            <div class="d-flex align-center gap-2 flex-wrap">
+                <span style="color:#cfcfe0;">@Mat1Name</span>
+                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" Style="color:#888;" />
+                <span style="color:#cfcfe0;">@Mat2Name</span>
+                <MudIcon Icon="@Icons.Material.Filled.ArrowRightAlt" Style="color:#c8a415;" />
+                <span style="color:#c8a415; font-weight:700;">@ResultName</span>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <MudChip T="string" Size="Size.Small"
+                     Style="background:#0a1a30; color:#64b5f6; border:1px solid #2a5a8e;">
+                <MudIcon Icon="@Icons.Material.Filled.AltRoute"
+                         Size="Size.Small" Class="mr-1" />
+                @_flowSequences.Count fusão(ões) na cadeia
+            </MudChip>
+            <MudChip T="string" Size="Size.Small"
+                     Style="background:#1a1a3e; color:#888; border:1px solid #2a2a6e;">
+                <MudIcon Icon="@Icons.Material.Filled.AccountTree"
+                         Size="Size.Small" Class="mr-1" />
+                Origem → resultado
+            </MudChip>
+        </div>
+
+        @if (_flowSequences.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info"
+                      Style="background:#0d1520; border:1px solid #2a5a8e;">
+                Não foi possível mapear o fluxo dessa fusão.
+            </MudAlert>
+        }
+        else
+        {
+            <MudPaper Class="pa-2" Elevation="0"
+                      Style="background:#141428; border:1px solid #1e1e4a;">
+                <FusionGraphSvg Sequences="@_flowSequences"
+                                AllCards="@AllCards"
+                                Zoom="0.45" />
+            </MudPaper>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="Close">Fechar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string Mat1Name   { get; set; } = "";
+    [Parameter, EditorRequired] public string Mat2Name   { get; set; } = "";
+    [Parameter, EditorRequired] public string ResultName { get; set; } = "";
+    [Parameter, EditorRequired] public int    Step       { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<FusionSequence> Sequences { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<Card>           AllCards  { get; set; } = [];
+
+    private List<FusionSequence> _flowSequences = [];
+
+    protected override void OnParametersSet()
+    {
+        // BFS dos ancestrais a partir dos materiais. Inclui o próprio resultado
+        // (alvo) e todas as cartas que precisam ser produzidas para chegar nele.
+        var ancestors = new HashSet<string> { Mat1Name, Mat2Name, ResultName };
+        var queue = new Queue<string>();
+        queue.Enqueue(Mat1Name);
+        queue.Enqueue(Mat2Name);
+
+        while (queue.Count > 0)
+        {
+            var name = queue.Dequeue();
+            foreach (var seq in Sequences)
+            {
+                foreach (var step in seq.Steps)
+                {
+                    if (step.Result != name) continue;
+                    if (ancestors.Add(step.Card1)) queue.Enqueue(step.Card1);
+                    if (ancestors.Add(step.Card2)) queue.Enqueue(step.Card2);
+                }
+            }
+        }
+
+        // Carta-alvo: a única marcada como "final" no sub-grafo (borda dourada)
+        var resultCard = AllCards.FirstOrDefault(c => c.Name == ResultName)
+                         ?? new Card { Name = ResultName };
+
+        // Coleta steps distintos cujos 3 nós (Card1, Card2, Result) estejam
+        // todos dentro da árvore de ancestrais.
+        var seen = new HashSet<(string, string, string)>();
+        var sequences = new List<FusionSequence>();
+
+        foreach (var seq in Sequences)
+        {
+            foreach (var step in seq.Steps)
+            {
+                if (!ancestors.Contains(step.Card1) ||
+                    !ancestors.Contains(step.Card2) ||
+                    !ancestors.Contains(step.Result)) continue;
+
+                var (a, b) = string.Compare(step.Card1, step.Card2, StringComparison.Ordinal) <= 0
+                    ? (step.Card1, step.Card2) : (step.Card2, step.Card1);
+                var key = (a, b, step.Result);
+                if (!seen.Add(key)) continue;
+
+                // FinalCard = sempre o alvo, para que só ele receba a borda dourada
+                sequences.Add(new FusionSequence(new[] { step }, resultCard));
+            }
+        }
+
+        _flowSequences = sequences;
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

@@ -16,9 +16,27 @@ public record JunctionNode(
     double Y,
     GraphNode Mat1,
     GraphNode Mat2,
-    GraphNode Result);
+    GraphNode Result,
+    int Step);
 
 public enum NodeRole { Input, Intermediate, Final }
+
+public enum GraphLayoutMode
+{
+    /// <summary>Bases na primeira linha; resultados afundam por longest-path.</summary>
+    Fusion,
+    /// <summary>Cartas-base empurradas para a linha imediatamente antes do uso.</summary>
+    Step,
+}
+
+public enum GraphVisibility
+{
+    /// <summary>Mostra todas as fusões possíveis (comportamento padrão).</summary>
+    All,
+    /// <summary>Greedy step-DESC: cada material só é consumido uma vez,
+    /// priorizando fusões de maior profundidade.</summary>
+    Simplified,
+}
 
 public record GraphLayoutResult(
     IReadOnlyList<GraphNode> Nodes,
@@ -36,15 +54,18 @@ public static class GraphLayout
     // Native source size of the card images served by basededatostea.xyz.
     public const double NodeW = 271;
     public const double NodeH = 386;
-    public const double ColGap = 60;
-    public const double RowGap = 140;
+    public const double ColGap = 110;
+    public const double RowGap = 230;
     public const double PadX = 24;
     public const double PadY = 24;
-    public const double JunctionR = 14;
+    public const double JunctionR = 22;
 
     public static GraphLayoutResult Build(
         IEnumerable<FusionSequence> sequences,
-        IReadOnlyDictionary<string, Card> cardsByName)
+        IReadOnlyDictionary<string, Card> cardsByName,
+        int? maxSteps = null,
+        GraphLayoutMode mode = GraphLayoutMode.Fusion,
+        GraphVisibility visibility = GraphVisibility.All)
     {
         var seqList = sequences.ToList();
 
@@ -62,6 +83,96 @@ public static class GraphLayout
                 var key = (a, b, s.Result);
                 if (stepKeys.Add(key)) distinctSteps.Add(key);
             }
+
+        // Apply max-steps filter. The "step" of a fusion is determined by the
+        // DEEPEST MATERIAL it consumes — not by the longest path to its
+        // result. So A + B = X is step 1 even if X is also reachable via a
+        // longer chain. We use the pre-filter layers to know how deep each
+        // material currently sits.
+        if (maxSteps is > 0)
+        {
+            var preLayers = ComputeLayers(distinctSteps);
+            distinctSteps = distinctSteps
+                .Where(s =>
+                {
+                    int la = preLayers.GetValueOrDefault(s.A, 0);
+                    int lb = preLayers.GetValueOrDefault(s.B, 0);
+                    return Math.Max(la, lb) + 1 <= maxSteps.Value;
+                })
+                .ToList();
+        }
+
+        // Modo "Simplificada": opera sobre FusionSequences inteiras (cadeias
+        // completas) em vez de steps individuais. Isso captura conflitos
+        // TRANSITIVOS — duas cadeias que terminam em finais diferentes mas
+        // que dependem da mesma carta-base (mesmo via intermediários
+        // distintos) não podem coexistir.
+        //
+        // Greedy por ATK do final (DESC) com tiebreaker por profundidade da
+        // cadeia (mais steps = plano mais elaborado), depois nome.
+        if (visibility == GraphVisibility.Simplified && distinctSteps.Count > 0)
+        {
+            var distinctKeys = new HashSet<(string, string, string)>(distinctSteps);
+
+            static (string A, string B, string R) NormalizeKey(FusionStep s)
+            {
+                var (a, b) = string.Compare(s.Card1, s.Card2, StringComparison.Ordinal) <= 0
+                    ? (s.Card1, s.Card2) : (s.Card2, s.Card1);
+                return (a, b, s.Result);
+            }
+
+            // Bases TRANSITIVAS de uma cadeia: todos os materiais que NÃO são
+            // resultados de outro step da mesma cadeia (ou seja, vieram da
+            // mão direto, não foram produzidos no caminho).
+            static HashSet<string> GetBases(FusionSequence seq)
+            {
+                var mats = new HashSet<string>();
+                var results = new HashSet<string>();
+                foreach (var st in seq.Steps)
+                {
+                    if (st.Card1 == st.Result || st.Card2 == st.Result) continue;
+                    mats.Add(st.Card1); mats.Add(st.Card2); results.Add(st.Result);
+                }
+                mats.ExceptWith(results);
+                return mats;
+            }
+
+            // Mantém só cadeias cujos passos sobreviveram ao filtro maxSteps
+            var validSeqs = seqList.Where(seq =>
+                seq.Steps.Count > 0 &&
+                seq.Steps.All(st => st.Card1 == st.Result || st.Card2 == st.Result
+                                    || distinctKeys.Contains(NormalizeKey(st))))
+                .ToList();
+
+            var sorted = validSeqs
+                .OrderByDescending(s => s.FinalCard.Attack)
+                .ThenByDescending(s => s.Steps.Count)
+                .ThenByDescending(s => s.FinalCard.Defense)
+                .ThenBy(s => s.FinalCard.Name)
+                .ToList();
+
+            var consumedBases = new HashSet<string>();
+            var keptSeqs = new List<FusionSequence>();
+            foreach (var seq in sorted)
+            {
+                var bases = GetBases(seq);
+                if (bases.Overlaps(consumedBases)) continue;
+                keptSeqs.Add(seq);
+                consumedBases.UnionWith(bases);
+            }
+
+            // Reconstrói distinctSteps somente com os passos das cadeias mantidas
+            var newKeys = new HashSet<(string, string, string)>();
+            var newSteps = new List<(string A, string B, string R)>();
+            foreach (var seq in keptSeqs)
+                foreach (var st in seq.Steps)
+                {
+                    if (st.Card1 == st.Result || st.Card2 == st.Result) continue;
+                    var k = NormalizeKey(st);
+                    if (newKeys.Add(k)) newSteps.Add(k);
+                }
+            distinctSteps = newSteps;
+        }
 
         var allResults    = distinctSteps.Select(s => s.R).ToHashSet();
         var allMaterials  = distinctSteps.SelectMany(s => new[] { s.A, s.B }).ToHashSet();
@@ -90,29 +201,22 @@ public static class GraphLayout
         }
         foreach (var f in finals) AddName(f);
 
-        // Row = longest path from any source
-        var layer = new Dictionary<string, int>();
-        bool changed = true;
-        int guard = 0;
-        while (changed && guard++ < 200)
+        // Row depends on the layout mode.
+        Dictionary<string, int> layer = ComputeFusionDepthLayers(allNames, preds);
+        if (mode == GraphLayoutMode.Step)
         {
-            changed = false;
-            foreach (var n in allNames)
-            {
-                int newL = preds[n].Count == 0 ? 0
-                         : preds[n].All(p => layer.ContainsKey(p))
-                            ? preds[n].Max(p => layer[p]) + 1
-                            : -1;
-                if (newL < 0) continue;
-                if (!layer.TryGetValue(n, out var cur) || cur != newL)
-                {
-                    layer[n] = newL;
-                    changed = true;
-                }
-            }
+            // Empurra cartas-base para a linha imediatamente antes do
+            // primeiro uso, gerando um efeito "escada" diagonal.
+            foreach (var n in inputs)
+                if (succs.TryGetValue(n, out var ss) && ss.Count > 0)
+                    layer[n] = ss.Min(s => layer.GetValueOrDefault(s, 0)) - 1;
         }
-        foreach (var n in allNames)
-            layer.TryAdd(n, 0);
+
+        // Normaliza para começar em 0 (modos podem produzir valores negativos)
+        int minLayer = layer.Values.DefaultIfEmpty(0).Min();
+        if (minLayer != 0)
+            foreach (var k in layer.Keys.ToList())
+                layer[k] -= minLayer;
 
         int maxLayer = layer.Values.DefaultIfEmpty(0).Max();
 
@@ -199,7 +303,10 @@ public static class GraphLayout
             }
         }
 
-        // Junctions: one per distinct (A, B, R) — sit just above the result
+        // Junctions: one per distinct (A, B, R) — sit just above the result.
+        // Step number is derived from the materials' layers, not the result's
+        // (so A+B=Z stays "step 1" even if Z is also reachable via a longer
+        // chain that has Z at row 3).
         var junctions = new List<JunctionNode>();
         foreach (var s in distinctSteps)
         {
@@ -208,8 +315,18 @@ public static class GraphLayout
             var r  = nodes[s.R];
 
             double jx = (m1.X + m2.X) / 2 + NodeW / 2;
-            double jy = r.Y - RowGap / 2;
-            junctions.Add(new JunctionNode(jx, jy, m1, m2, r));
+            // Junção SEMPRE dentro do gap adjacente ao resultado, do lado dos
+            // materiais. Isso evita que a junção caia em cima de uma carta
+            // intermediária quando os materiais estão em rows diferentes
+            // (ex.: m1 em row 0 e m2 em row 2 → midpoint cairia em row 1).
+            double avgMatYCenter = (m1.Y + m2.Y) / 2 + NodeH / 2;
+            double resultYCenter = r.Y + NodeH / 2;
+            double jy = avgMatYCenter < resultYCenter
+                ? r.Y - RowGap / 2              // materiais acima → junção acima do resultado
+                : r.Y + NodeH + RowGap / 2;     // materiais abaixo → junção abaixo do resultado
+
+            int step = Math.Max(m1.Layer, m2.Layer) + 1;
+            junctions.Add(new JunctionNode(jx, jy, m1, m2, r, step));
         }
 
         double rightmost = nodes.Values.DefaultIfEmpty().Max(n => n is null ? 0 : n.X + NodeW);
@@ -221,5 +338,87 @@ public static class GraphLayout
             junctions,
             Math.Max(width,  NodeW + PadX * 2),
             Math.Max(height, NodeH + PadY * 2));
+    }
+
+    /// <summary>
+    /// Layering por longest-path no DAG: bases ficam em 0, resultados afundam
+    /// na profundidade do caminho mais longo até eles.
+    /// </summary>
+    private static Dictionary<string, int> ComputeFusionDepthLayers(
+        IReadOnlyCollection<string> allNames,
+        IReadOnlyDictionary<string, HashSet<string>> preds)
+    {
+        var layer = new Dictionary<string, int>();
+        bool changed = true;
+        int guard = 0;
+        while (changed && guard++ < 200)
+        {
+            changed = false;
+            foreach (var n in allNames)
+            {
+                var ps = preds[n];
+                int newL = ps.Count == 0 ? 0
+                         : ps.All(p => layer.ContainsKey(p))
+                            ? ps.Max(p => layer[p]) + 1
+                            : -1;
+                if (newL < 0) continue;
+                if (!layer.TryGetValue(n, out var cur) || cur != newL)
+                {
+                    layer[n] = newL;
+                    changed = true;
+                }
+            }
+        }
+        foreach (var n in allNames)
+            layer.TryAdd(n, 0);
+        return layer;
+    }
+
+    /// <summary>
+    /// Topological-style longest-path layering for a list of fusion steps.
+    /// Returns the row index (0-based) of every node in the resulting DAG.
+    /// </summary>
+    private static Dictionary<string, int> ComputeLayers(
+        IReadOnlyList<(string A, string B, string R)> steps)
+    {
+        var preds = new Dictionary<string, HashSet<string>>();
+        var allNames = new HashSet<string>();
+
+        void Touch(string n)
+        {
+            if (!allNames.Add(n)) return;
+            preds[n] = [];
+        }
+
+        foreach (var s in steps)
+        {
+            Touch(s.A); Touch(s.B); Touch(s.R);
+            preds[s.R].Add(s.A);
+            preds[s.R].Add(s.B);
+        }
+
+        var layer = new Dictionary<string, int>();
+        bool changed = true;
+        int guard = 0;
+        while (changed && guard++ < 200)
+        {
+            changed = false;
+            foreach (var n in allNames)
+            {
+                int newL = preds[n].Count == 0 ? 0
+                         : preds[n].All(p => layer.ContainsKey(p))
+                            ? preds[n].Max(p => layer[p]) + 1
+                            : -1;
+                if (newL < 0) continue;
+                if (!layer.TryGetValue(n, out var cur) || cur != newL)
+                {
+                    layer[n] = newL;
+                    changed = true;
+                }
+            }
+        }
+        foreach (var n in allNames)
+            layer.TryAdd(n, 0);
+        return layer;
     }
 }

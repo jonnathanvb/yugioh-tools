@@ -373,6 +373,53 @@
                 <div class="d-flex align-center gap-2 flex-wrap">
                     @if (_allSequences.Count > 0)
                     {
+                        <MudSelect T="GraphLayoutMode"
+                                   Value="_layoutMode"
+                                   ValueChanged="OnLayoutModeChanged"
+                                   Variant="Variant.Outlined"
+                                   Dense="true"
+                                   Margin="Margin.Dense"
+                                   Style="min-width:140px; max-width:170px;"
+                                   Label="Ordenar"
+                                   AdornmentIcon="@Icons.Material.Filled.Sort"
+                                   Adornment="Adornment.Start">
+                            <MudSelectItem Value="GraphLayoutMode.Fusion">Fusão</MudSelectItem>
+                            <MudSelectItem Value="GraphLayoutMode.Step">Step</MudSelectItem>
+                        </MudSelect>
+
+                        <MudSelect T="GraphVisibility"
+                                   Value="_visibility"
+                                   ValueChanged="OnVisibilityChanged"
+                                   Variant="Variant.Outlined"
+                                   Dense="true"
+                                   Margin="Margin.Dense"
+                                   Style="min-width:160px; max-width:190px;"
+                                   Label="Exibição"
+                                   AdornmentIcon="@Icons.Material.Filled.Visibility"
+                                   Adornment="Adornment.Start">
+                            <MudSelectItem Value="GraphVisibility.All">Todas</MudSelectItem>
+                            <MudSelectItem Value="GraphVisibility.Simplified">Simplificada</MudSelectItem>
+                        </MudSelect>
+
+                        <div class="d-flex align-center gap-1"
+                             title="Profundidade máxima dos caminhos exibidos">
+                            <MudIcon Icon="@Icons.Material.Filled.Layers"
+                                     Size="Size.Small" Style="color:#888;" />
+                            <MudToggleGroup T="int"
+                                            SelectionMode="SelectionMode.SingleSelection"
+                                            Value="_maxStepsFilter"
+                                            ValueChanged="OnMaxStepsChanged"
+                                            Size="Size.Small"
+                                            Color="Color.Primary"
+                                            CheckMark="false">
+                                <MudToggleItem T="int" Value="@(1)" Text="1" />
+                                <MudToggleItem T="int" Value="@(2)" Text="2" />
+                                <MudToggleItem T="int" Value="@(3)" Text="3" />
+                                <MudToggleItem T="int" Value="@(4)" Text="4" />
+                                <MudToggleItem T="int" Value="@(0)" Text="+4" />
+                            </MudToggleGroup>
+                        </div>
+
                         <div class="d-flex align-center gap-1" title="Zoom do grafo de fusões">
                             <MudIcon Icon="@Icons.Material.Filled.AccountTree"
                                      Size="Size.Small" Style="color:#888;" />
@@ -389,12 +436,6 @@
                                            Disabled="@(_fusionZoom >= FusionMax)" />
                         </div>
                     }
-                    <MudChip T="string" Size="Size.Small"
-                             Style="background:#1a1a3e; color:#888; border:1px solid #2a2a6e;">
-                        <MudIcon Icon="@Icons.Material.Filled.AccountTree"
-                                 Size="Size.Small" Class="mr-1" />
-                        Grafo global
-                    </MudChip>
                 </div>
             </div>
 
@@ -453,8 +494,12 @@
                           Style="background:#141428; border:1px solid #1e1e4a;">
                     <FusionGraphSvg Sequences="@_allSequences" AllCards="@_cards"
                                     Zoom="_fusionZoom"
+                                    MaxSteps="@(_maxStepsFilter > 0 ? _maxStepsFilter : null)"
+                                    LayoutMode="_layoutMode"
+                                    Visibility="_visibility"
                                     OnCardClicked="ShowCardBranches"
-                                    OnCardLongClicked="ShowCardDetails" />
+                                    OnCardLongClicked="ShowCardDetails"
+                                    OnJunctionClicked="ShowJunctionFlow" />
                 </MudPaper>
             }
         }
@@ -522,6 +567,19 @@
 
     // ── Catalog collapse (deck stays always visible) ───────────────
     private bool _catalogExpanded = true;
+
+    // ── Fusion graph: max-step filter ──────────────────────────────
+    // 0 = "+4" (sem limite); 1..4 = profundidade máxima do caminho.
+    private int _maxStepsFilter = 0;
+    private void OnMaxStepsChanged(int v) => _maxStepsFilter = v;
+
+    // ── Fusion graph: layout mode ──────────────────────────────────
+    private GraphLayoutMode _layoutMode = GraphLayoutMode.Fusion;
+    private void OnLayoutModeChanged(GraphLayoutMode v) => _layoutMode = v;
+
+    // ── Fusion graph: visibility ───────────────────────────────────
+    private GraphVisibility _visibility = GraphVisibility.All;
+    private void OnVisibilityChanged(GraphVisibility v) => _visibility = v;
 
     // ── Results ────────────────────────────────────────────────────
     private IReadOnlyList<FusionSequence>? _allSequences;
@@ -824,6 +882,34 @@
         };
         await DialogService.ShowAsync<CardBranchesDialog>(
             $"Caminhos: {c.Name}", parameters, options);
+    }
+
+    /// <summary>Click on a junction (numbered "+"): open a modal showing the
+    /// full ancestor chain leading from the base cards up to that step's
+    /// result.</summary>
+    private async Task ShowJunctionFlow(JunctionNode j)
+    {
+        if (_allSequences is null || _cards is null) return;
+
+        var parameters = new DialogParameters
+        {
+            ["Mat1Name"]   = j.Mat1.Name,
+            ["Mat2Name"]   = j.Mat2.Name,
+            ["ResultName"] = j.Result.Name,
+            ["Step"]       = j.Step,
+            ["Sequences"]  = _allSequences,
+            ["AllCards"]   = _cards,
+        };
+        var options = new DialogOptions
+        {
+            CloseButton   = true,
+            MaxWidth      = MaxWidth.ExtraLarge,
+            FullWidth     = true,
+            BackdropClick = true,
+        };
+        await DialogService.ShowAsync<JunctionFlowDialog>(
+            $"Etapa {j.Step}: {j.Mat1.Name} + {j.Mat2.Name} → {j.Result.Name}",
+            parameters, options);
     }
 
     // ── Detect from emulator ───────────────────────────────────────

@@ -25,26 +25,27 @@
                 }
             </defs>
 
-            @* Material → Junction edges *@
+            @* Material → Junction edges (entrada na borda da carta voltada para a junção) *@
             @for (int ji = 0; ji < _layout.Junctions.Count; ji++)
             {
                 var j = _layout.Junctions[ji];
                 var color = PairColor(ji, _layout.Junctions.Count);
                 var op = JunctionOpacity(ji);
-                @DrawCurve(j.Mat1.X + GraphLayout.NodeW / 2, j.Mat1.Y + GraphLayout.NodeH,
+                @DrawCurve(j.Mat1.X + GraphLayout.NodeW / 2, MaterialAnchorY(j.Mat1, j.Y),
                            j.X, j.Y, color, "2", false, op: op)
-                @DrawCurve(j.Mat2.X + GraphLayout.NodeW / 2, j.Mat2.Y + GraphLayout.NodeH,
+                @DrawCurve(j.Mat2.X + GraphLayout.NodeW / 2, MaterialAnchorY(j.Mat2, j.Y),
                            j.X, j.Y, color, "2", false, op: op)
             }
 
-            @* Junction → Result edges (with arrow) *@
+            @* Junction → Result edges (with arrow). Entrada na borda do
+               resultado voltada para a junção. *@
             @for (int ji = 0; ji < _layout.Junctions.Count; ji++)
             {
                 var j = _layout.Junctions[ji];
                 var color = PairColor(ji, _layout.Junctions.Count);
                 var op = JunctionOpacity(ji);
                 @DrawCurve(j.X, j.Y,
-                           j.Result.X + GraphLayout.NodeW / 2, j.Result.Y,
+                           j.Result.X + GraphLayout.NodeW / 2, ResultAnchorY(j.Result, j.Y),
                            color, "2.5", true, ji, op)
             }
 
@@ -98,16 +99,17 @@
                 <g opacity="@F(op)"
                    style="cursor:pointer;"
                    @onmouseover="() => OnJunctionEnter(idx)"
-                   @onmouseout="OnJunctionLeave">
+                   @onmouseout="OnJunctionLeave"
+                   @onclick="@(() => OnJunctionClickedInternal(j))">
                     <circle cx="@F(j.X)" cy="@F(j.Y)" r="@F(GraphLayout.JunctionR + 6)"
                             fill="transparent" />
                     <circle cx="@F(j.X)" cy="@F(j.Y)" r="@F(GraphLayout.JunctionR)"
                             fill="#0a0a18" stroke="@color" stroke-width="2.5" />
-                    <text x="@F(j.X)" y="@F(j.Y + 4)" text-anchor="middle"
-                          font-size="13" font-weight="700" fill="@color"
+                    <text x="@F(j.X)" y="@F(j.Y + 9)" text-anchor="middle"
+                          font-size="24" font-weight="800" fill="@color"
                           font-family="Roboto, sans-serif"
-                          style="pointer-events:none;">+</text>
-                    <title>@($"{j.Mat1.Name} + {j.Mat2.Name} = {j.Result.Name}")</title>
+                          style="pointer-events:none;">@j.Step</text>
+                    <title>@($"Etapa {j.Step}: {j.Mat1.Name} + {j.Mat2.Name} = {j.Result.Name}")</title>
                 </g>
             }
         </svg>
@@ -122,6 +124,14 @@
     [Parameter] public EventCallback<Card> OnCardClicked { get; set; }
     /// <summary>Long press (3s) on a card.</summary>
     [Parameter] public EventCallback<Card> OnCardLongClicked { get; set; }
+    /// <summary>If set, fusions whose result requires more than N steps are dropped.</summary>
+    [Parameter] public int? MaxSteps { get; set; }
+    /// <summary>Click on a junction (the numbered "+" node).</summary>
+    [Parameter] public EventCallback<JunctionNode> OnJunctionClicked { get; set; }
+    /// <summary>Modo de layout: Fusão ou Step.</summary>
+    [Parameter] public GraphLayoutMode LayoutMode { get; set; } = GraphLayoutMode.Fusion;
+    /// <summary>Visibilidade: todas as fusões ou versão simplificada (greedy step-DESC).</summary>
+    [Parameter] public GraphVisibility Visibility { get; set; } = GraphVisibility.All;
 
     private GraphLayoutResult? _layout;
     private readonly string _id = Guid.NewGuid().ToString("N")[..8];
@@ -137,7 +147,7 @@
     {
         var byName = new Dictionary<string, Card>();
         foreach (var c in AllCards) byName.TryAdd(c.Name, c);
-        _layout = GraphLayout.Build(Sequences, byName);
+        _layout = GraphLayout.Build(Sequences, byName, MaxSteps, LayoutMode, Visibility);
 
         _hoveredJunctionIndex = null;
         _highlightedJunctions = [];
@@ -181,6 +191,12 @@
         if (card is null) return;
         if (OnCardClicked.HasDelegate)
             await OnCardClicked.InvokeAsync(card);
+    }
+
+    private async Task OnJunctionClickedInternal(JunctionNode junction)
+    {
+        if (OnJunctionClicked.HasDelegate)
+            await OnJunctionClicked.InvokeAsync(junction);
     }
 
     private void OnJunctionEnter(int idx)
@@ -244,7 +260,9 @@
         double op = 1.0) => __builder =>
     {
         double cy = (sy + ty) / 2;
-        double endY = arrow ? ty - 6 : ty;
+        // Recua a ponta 6px no sentido oposto à direção do path para o
+        // marker da seta caber sem invadir a carta.
+        double endY = arrow ? ty - Math.Sign(ty - sy) * 6 : ty;
         var d = $"M {F(sx)} {F(sy)} C {F(sx)} {F(cy)}, {F(tx)} {F(cy)}, {F(tx)} {F(endY)}";
         __builder.OpenElement(0, "path");
         __builder.AddAttribute(1, "d", d);
@@ -256,6 +274,19 @@
         if (arrow) __builder.AddAttribute(7, "marker-end", $"url(#arrow_{_id}_{junctionIndex})");
         __builder.CloseElement();
     };
+
+    // Retorna a Y da borda da carta voltada para a junção (topo se a junção
+    // está acima da carta; base se está abaixo). Permite que ATK ↓ desenhe
+    // bem mesmo com resultado acima dos materiais.
+    private static double MaterialAnchorY(GraphNode m, double junctionY) =>
+        junctionY > m.Y + GraphLayout.NodeH / 2
+            ? m.Y + GraphLayout.NodeH   // junção abaixo → ancoragem na base
+            : m.Y;                       // junção acima  → ancoragem no topo
+
+    private static double ResultAnchorY(GraphNode r, double junctionY) =>
+        junctionY < r.Y + GraphLayout.NodeH / 2
+            ? r.Y                        // junção acima  → entrada pelo topo
+            : r.Y + GraphLayout.NodeH;   // junção abaixo → entrada pela base
 
     private static string PairColor(int index, int total)
     {
