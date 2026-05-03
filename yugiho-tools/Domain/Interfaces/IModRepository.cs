@@ -9,7 +9,11 @@ public interface IModRepository
     /// <summary>
     /// Registers a mod by copying both ROM files into MOD/&lt;slug&gt;/.
     /// </summary>
-    Task<Mod> RegisterAsync(string name, string sourceGamePath, string sourceMrgPath);
+    Task<Mod> RegisterAsync(
+        string name,
+        string sourceGamePath,
+        string sourceMrgPath,
+        string imageUrlTemplate);
 
     Task DeleteAsync(string slug);
 

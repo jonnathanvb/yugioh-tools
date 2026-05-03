@@ -32,6 +32,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<IModRepository, FileModRepository>();
         builder.Services.AddSingleton<IGlobalShortcutService, WindowsGlobalShortcutService>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.AppSettings>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.CurrentModContext>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.ModCatalogService>();
 
         builder.Services.AddScoped<LoadRomDataUseCase>();
         builder.Services.AddScoped<GetFusionsFromHandUseCase>();

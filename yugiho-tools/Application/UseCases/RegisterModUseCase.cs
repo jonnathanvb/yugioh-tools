@@ -5,8 +5,9 @@ namespace yugiho_tools.Application.UseCases;
 
 public class RegisterModUseCase(IModRepository repo)
 {
-    public Task<Mod> ExecuteAsync(string name, string gamePath, string mrgPath) =>
-        repo.RegisterAsync(name, gamePath, mrgPath);
+    public Task<Mod> ExecuteAsync(
+        string name, string gamePath, string mrgPath, string imageUrlTemplate) =>
+        repo.RegisterAsync(name, gamePath, mrgPath, imageUrlTemplate);
 }
 
 public class ListModsUseCase(IModRepository repo)

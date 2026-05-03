@@ -1,0 +1,10 @@
+[
+  { "id": 0, "name": "Light" },
+  { "id": 1, "name": "Dark"  },
+  { "id": 2, "name": "Earth" },
+  { "id": 3, "name": "Water" },
+  { "id": 4, "name": "Fire"  },
+  { "id": 5, "name": "Wind"  },
+  { "id": 6, "name": "Magic" },
+  { "id": 7, "name": "Trap"  }
+]

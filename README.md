@@ -141,18 +141,24 @@ Domain não referencia nenhuma biblioteca externa.
 git clone <repo-url>
 cd yugiho
 
-# Restore + build
-dotnet restore yugiho.sln
-dotnet build yugiho.sln -c Release
+# Sincronizar workloads MAUI (uma vez)
+dotnet workload restore
 
-# Executar (Windows)
-dotnet run --project yugiho-tools\yugiho-tools.csproj -f net10.0-windows10.0.19041.0
+# Restore + build (Debug)
+dotnet restore yugiho.sln
+dotnet build yugiho-tools\yugiho-tools.csproj -c Debug
+
+# Executar
+dotnet run --project yugiho-tools\yugiho-tools.csproj
+
+# Release (publish self-contained x64)
+dotnet publish yugiho-tools\yugiho-tools.csproj -c Release -r win-x64
 ```
 
 Pré-requisitos:
-- Windows 10/11
-- .NET 10 SDK (preview)
-- Workload `maui-windows`
+- Windows 10/11 (x64 ou ARM64)
+- .NET 10 SDK
+- Workload `maui-windows` (`dotnet workload install maui-windows`)
 
 ---
 

@@ -13,6 +13,7 @@
 @inject yugiho_tools.Domain.Interfaces.IScreenCapture ScreenCapture
 @inject yugiho_tools.Domain.Interfaces.IGlobalShortcutService Shortcuts
 @inject yugiho_tools.Application.Services.AppSettings Settings
+@inject yugiho_tools.Application.Services.CurrentModContext ModContext
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Nav
@@ -195,7 +196,7 @@
                         {
                             <div class="cart-item" @onclick="() => RemoveFromHand(c)"
                                  title="@($"{c.Name} — clique para remover (ATK {c.Attack} / DEF {c.Defense})")">
-                                <img src="@CardImage.Url(c.CardId)"
+                                <img src="@CardImage.Url(ModContext.ImageUrlTemplate, c.CardId)"
                                      style="@($"width:{DeckCardWidth}px; aspect-ratio:271/386; object-fit:contain; border-radius:3px;")" />
                                 <MudIcon Icon="@Icons.Material.Filled.Close"
                                          Class="cart-close"
@@ -248,27 +249,31 @@
                                       AdornmentIcon="@Icons.Material.Filled.Search" />
                     </MudItem>
                     <MudItem xs="6" sm="3" md="2">
-                        <MudSelect T="int?" @bind-Value="_filterType"
+                        <MudSelect T="int?"
+                                   Value="_filterType"
+                                   ValueChanged="@(v => { _filterType = v; })"
+                                   ToStringFunc="@(v => v.HasValue ? CardMetadata.TypeName(v.Value) : "")"
                                    Label="Tipo" Variant="Variant.Outlined"
                                    Clearable="true">
-                            @for (int i = 0; i < CardMetadata.TypeNames.Length; i++)
+                            @foreach (var t in CardMetadata.Types)
                             {
-                                int idx = i;
-                                <MudSelectItem T="int?" Value="@((int?)idx)">
-                                    @CardMetadata.TypeNames[i]
+                                <MudSelectItem T="int?" Value="@((int?)t.Id)">
+                                    @t.Name
                                 </MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
                     <MudItem xs="6" sm="3" md="2">
-                        <MudSelect T="int?" @bind-Value="_filterAttribute"
+                        <MudSelect T="int?"
+                                   Value="_filterAttribute"
+                                   ValueChanged="@(v => { _filterAttribute = v; })"
+                                   ToStringFunc="@(v => v.HasValue ? CardMetadata.AttributeName(v.Value) : "")"
                                    Label="Atributo" Variant="Variant.Outlined"
                                    Clearable="true">
-                            @for (int i = 0; i < CardMetadata.AttributeNames.Length; i++)
+                            @foreach (var a in CardMetadata.Attributes)
                             {
-                                int idx = i;
-                                <MudSelectItem T="int?" Value="@((int?)idx)">
-                                    @CardMetadata.AttributeNames[i]
+                                <MudSelectItem T="int?" Value="@((int?)a.Id)">
+                                    @a.Name
                                 </MudSelectItem>
                             }
                         </MudSelect>
@@ -338,7 +343,7 @@
                              @ontouchend="CancelLongPress"
                              @ontouchcancel="CancelLongPress"
                              title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense} · segure 3s para detalhes")">
-                            <img src="@CardImage.Url(c.CardId)" loading="lazy"
+                            <img src="@CardImage.Url(ModContext.ImageUrlTemplate, c.CardId)" loading="lazy"
                                  class="card-tile-img" alt="@c.Name" />
                             @if (selected)
                             {
@@ -528,6 +533,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await CardMetadata.LoadAsync();
         RefreshWindows();
         _mods = (await ListModsUseCase.ExecuteAsync()).ToList();
 
@@ -611,6 +617,7 @@
         var mod = _mods.FirstOrDefault(m => m.Slug == slug);
         if (mod is null) return;
 
+        ModContext.Set(mod);
         await LoadCards(mod);
     }
 

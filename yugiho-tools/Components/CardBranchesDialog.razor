@@ -1,12 +1,14 @@
 @using yugiho_tools.Application.DTOs
 @using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
 @using yugiho_tools.Domain.Entities
 @using Color = MudBlazor.Color
+@inject CurrentModContext ModContext
 
 <MudDialog Style="background:#0d0d1a;">
     <DialogContent>
         <div class="d-flex align-center gap-3 mb-2 flex-wrap">
-            <img src="@CardImage.Url(Card.CardId)"
+            <img src="@CardImage.Url(ModContext.ImageUrlTemplate, Card.CardId)"
                  style="width:80px; aspect-ratio:271/386; object-fit:contain;
                         border-radius:4px; border:1px solid #c8a415;" />
             <div>
@@ -80,27 +82,50 @@
     protected override void OnParametersSet()
     {
         var name = Card.Name;
-        _relatedSequences = Sequences
-            .Where(s => s.Steps.Any(st => st.Card1 == name || st.Card2 == name || st.Result == name))
-            .ToList();
 
-        // Count distinct (A,B,R) steps where this card is a result vs material
-        var seenOrigin      = new HashSet<(string, string, string)>();
-        var seenDestination = new HashSet<(string, string, string)>();
-        foreach (var s in _relatedSequences)
+        // Index AllCards by name so we can build self-contained sequences
+        var cardByName = new Dictionary<string, Card>();
+        foreach (var c in AllCards) cardByName.TryAdd(c.Name, c);
+
+        // Walk every sequence and keep ONLY the steps that directly involve
+        // this card — as material (Card1 / Card2) or as result. Ancestors
+        // and downstream chains that don't touch this card are discarded.
+        var seenSteps    = new HashSet<(string, string, string)>();
+        var directSteps  = new List<FusionStep>();
+        int originCount  = 0;
+        int destCount    = 0;
+
+        foreach (var seq in Sequences)
         {
-            foreach (var st in s.Steps)
+            foreach (var st in seq.Steps)
             {
+                bool isResult   = st.Result == name;
+                bool isMaterial = st.Card1 == name || st.Card2 == name;
+                if (!isResult && !isMaterial) continue;
+
                 var (a, b) = string.Compare(st.Card1, st.Card2, StringComparison.Ordinal) <= 0
                     ? (st.Card1, st.Card2) : (st.Card2, st.Card1);
                 var key = (a, b, st.Result);
+                if (!seenSteps.Add(key)) continue;
 
-                if (st.Result == name) seenOrigin.Add(key);
-                if (st.Card1 == name || st.Card2 == name) seenDestination.Add(key);
+                directSteps.Add(st);
+                if (isResult)   originCount++;
+                if (isMaterial) destCount++;
             }
         }
-        _originCount      = seenOrigin.Count;
-        _destinationCount = seenDestination.Count;
+
+        // Each direct step becomes its own single-step "sequence" so the
+        // sub-graph renders only the direct neighborhood of this card.
+        _relatedSequences = directSteps
+            .Select(st => new FusionSequence(
+                Steps:     new[] { st },
+                FinalCard: cardByName.TryGetValue(st.Result, out var c)
+                            ? c
+                            : new Card { Name = st.Result }))
+            .ToList();
+
+        _originCount      = originCount;
+        _destinationCount = destCount;
     }
 
     private void Close() => MudDialog.Close(DialogResult.Ok(true));

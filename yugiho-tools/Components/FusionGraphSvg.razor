@@ -1,6 +1,8 @@
 @using yugiho_tools.Application.DTOs
 @using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
 @using yugiho_tools.Domain.Entities
+@inject CurrentModContext ModContext
 
 @if (_layout != null)
 {
@@ -64,7 +66,7 @@
                    @ontouchcancel="CancelCardLongPress">
                     @if (card != null)
                     {
-                        <image href="@CardImage.Url(card.CardId)"
+                        <image href="@CardImage.Url(ModContext.ImageUrlTemplate, card.CardId)"
                                x="@F(node.X)" y="@F(node.Y)"
                                width="@F(GraphLayout.NodeW)" height="@F(GraphLayout.NodeH)"
                                preserveAspectRatio="xMidYMid meet" />

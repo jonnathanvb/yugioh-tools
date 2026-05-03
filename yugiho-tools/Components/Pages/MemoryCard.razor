@@ -10,6 +10,7 @@
 @inject ParseMemoryCardUseCase ParseMemoryCardUseCase
 @inject ListModsUseCase ListModsUseCase
 @inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
+@inject yugiho_tools.Application.Services.CurrentModContext ModContext
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -206,7 +207,7 @@
                         var card = CardForId(entry.CardId);
                         if (card is null) continue;
                         <div class="card-tile" title="@($"{card.Name} — ATK {card.Attack} / DEF {card.Defense}")">
-                            <img src="@CardImage.Url(card.CardId)" loading="lazy"
+                            <img src="@CardImage.Url(ModContext.ImageUrlTemplate, card.CardId)" loading="lazy"
                                  class="card-tile-img" alt="@card.Name" />
                             @if (entry.Count > 1)
                             {
@@ -299,6 +300,7 @@
         var mod = _mods.FirstOrDefault(m => m.Slug == slug);
         if (mod is null) return;
 
+        ModContext.Set(mod);
         _isLoading = true;
         _loadProgress = 0;
         _cards = null;

@@ -1,10 +1,12 @@
 @page "/mods"
+@using yugiho_tools.Application.Services
 @using yugiho_tools.Domain.Entities
 @using Color = MudBlazor.Color
 @using Size = MudBlazor.Size
 @inject RegisterModUseCase RegisterModUseCase
 @inject ListModsUseCase ListModsUseCase
 @inject DeleteModUseCase DeleteModUseCase
+@inject yugiho_tools.Application.Services.ModCatalogService ModCatalog
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -36,12 +38,20 @@
                 </MudText>
                 <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
-                <MudTextField T="string" @bind-Value="_newName"
-                              Label="Nome do MOD" Variant="Variant.Outlined"
-                              Class="mb-3"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Edit"
-                              HelperText="@HelperSlugText" />
+                <MudAutocomplete T="ModCatalogEntry"
+                                 Value="_selectedCatalog"
+                                 ValueChanged="OnCatalogChanged"
+                                 SearchFunc="SearchCatalog"
+                                 ToStringFunc="@(e => e?.Name ?? "")"
+                                 Label="MOD"
+                                 Variant="Variant.Outlined"
+                                 Class="mb-3"
+                                 ResetValueOnEmptyText="true"
+                                 CoerceText="false"
+                                 Adornment="Adornment.Start"
+                                 AdornmentIcon="@Icons.Material.Filled.LibraryBooks"
+                                 HelperText="@HelperCatalogText" />
+
 
                 <div class="@FileZoneClass(_newGamePath)" @onclick="PickGameFile">
                     <MudPaper Class="pa-3" Elevation="0" Style="background:transparent;">
@@ -139,6 +149,18 @@
                                             @mod.GameFileName · @mod.MrgFileName ·
                                             @mod.CreatedAt.ToString("yyyy-MM-dd HH:mm")
                                         </MudText>
+                                        @if (!string.IsNullOrEmpty(mod.ImageUrlTemplate))
+                                        {
+                                            <MudText Typo="Typo.caption" Style="color:#666;">
+                                                🖼 <code>@mod.ImageUrlTemplate</code>
+                                            </MudText>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.caption" Style="color:#f44336;">
+                                                ⚠ Sem URL de imagens — re-cadastre para usar.
+                                            </MudText>
+                                        }
                                     </div>
                                     <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                    Color="Color.Error" Size="Size.Small"
@@ -155,25 +177,53 @@
 </MudContainer>
 
 @code {
-    private string? _newName;
     private string? _newGamePath;
     private string? _newMrgPath;
+    private ModCatalogEntry? _selectedCatalog;
     private bool    _isSaving;
     private List<Mod> _mods = [];
+    private List<ModCatalogEntry> _catalog = [];
 
     private bool CanSave =>
-        !string.IsNullOrWhiteSpace(_newName) &&
+        _selectedCatalog != null &&
         _newGamePath != null &&
         _newMrgPath != null;
 
-    private string HelperSlugText =>
-        string.IsNullOrWhiteSpace(_newName)
-            ? "Pasta criada será MOD/<nome_normalizado>"
-            : $"Pasta: MOD/{Slugify(_newName)}";
+    private string HelperCatalogText =>
+        _selectedCatalog is null
+            ? "Comece a digitar para filtrar os mods disponíveis."
+            : "MOD selecionado.";
+
+    private string PreviewUrl =>
+        _selectedCatalog is null
+            ? ""
+            : ModCatalogService.BuildImageUrlTemplate(_selectedCatalog);
+
+    private string SlugPreview =>
+        _selectedCatalog is null
+            ? ""
+            : Slugify(_selectedCatalog.Name);
 
     protected override async Task OnInitializedAsync()
     {
+        _catalog = (await ModCatalog.GetAllAsync()).ToList();
         await Reload();
+    }
+
+    private void OnCatalogChanged(ModCatalogEntry? entry) => _selectedCatalog = entry;
+
+    private Task<IEnumerable<ModCatalogEntry>> SearchCatalog(string? value, CancellationToken token)
+    {
+        IEnumerable<ModCatalogEntry> result = _catalog;
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            var term = value.Trim();
+            result = _catalog.Where(e =>
+                e.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                e.Path.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                e.Id.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+        return Task.FromResult(result.Take(50));
     }
 
     private async Task Reload()
@@ -226,13 +276,14 @@
         _isSaving = true;
         try
         {
+            var template = ModCatalogService.BuildImageUrlTemplate(_selectedCatalog!);
             var mod = await RegisterModUseCase.ExecuteAsync(
-                _newName!, _newGamePath!, _newMrgPath!);
+                _selectedCatalog!.Name, _newGamePath!, _newMrgPath!, template);
             Snackbar.Add($"MOD '{mod.Name}' cadastrado em MOD/{mod.Slug}.", Severity.Success);
 
-            _newName = null;
             _newGamePath = null;
             _newMrgPath = null;
+            _selectedCatalog = null;
             await Reload();
         }
         catch (Exception ex)

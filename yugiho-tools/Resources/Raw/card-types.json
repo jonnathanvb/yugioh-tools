@@ -1,0 +1,20 @@
+[
+  { "id": 0,  "name": "Dragon"        },
+  { "id": 1,  "name": "Spellcaster"   },
+  { "id": 2,  "name": "Zombie"        },
+  { "id": 3,  "name": "Warrior"       },
+  { "id": 4,  "name": "Beast-Warrior" },
+  { "id": 5,  "name": "Beast"         },
+  { "id": 6,  "name": "Winged Beast"  },
+  { "id": 7,  "name": "Fiend"         },
+  { "id": 8,  "name": "Fairy"         },
+  { "id": 9,  "name": "Insect"        },
+  { "id": 10, "name": "Dinosaur"      },
+  { "id": 11, "name": "Psychic"       },
+  { "id": 12, "name": "Fish"          },
+  { "id": 13, "name": "Divine-Beast"  },
+  { "id": 14, "name": "Machine"       },
+  { "id": 15, "name": "Thunder"       },
+  { "id": 16, "name": "Aqua"          },
+  { "id": 17, "name": "Pyro"          }
+]

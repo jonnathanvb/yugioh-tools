@@ -1,11 +1,13 @@
 @using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
 @using yugiho_tools.Domain.Entities
+@inject CurrentModContext ModContext
 
 <MudDialog Style="background:#0d0d1a;">
     <DialogContent>
         <div class="d-flex gap-4 flex-wrap" style="min-width:300px;">
             <div>
-                <img src="@CardImage.Url(Card.CardId)" alt="@Card.Name"
+                <img src="@CardImage.Url(ModContext.ImageUrlTemplate, Card.CardId)" alt="@Card.Name"
                      style="width:271px; max-width:90vw;
                             aspect-ratio:271/386; object-fit:contain;
                             border-radius:6px; border:1px solid #2a2a6e;" />

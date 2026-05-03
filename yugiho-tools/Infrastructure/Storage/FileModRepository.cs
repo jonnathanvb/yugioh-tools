@@ -34,7 +34,8 @@ public class FileModRepository : IModRepository
     public async Task<Mod> RegisterAsync(
         string name,
         string sourceGamePath,
-        string sourceMrgPath)
+        string sourceMrgPath,
+        string imageUrlTemplate)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Nome do mod é obrigatório.", nameof(name));
@@ -42,6 +43,12 @@ public class FileModRepository : IModRepository
             throw new FileNotFoundException("Arquivo SLUS não encontrado.", sourceGamePath);
         if (!File.Exists(sourceMrgPath))
             throw new FileNotFoundException("Arquivo WA_MRG não encontrado.", sourceMrgPath);
+        if (string.IsNullOrWhiteSpace(imageUrlTemplate) ||
+            !imageUrlTemplate.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                "URL das imagens deve conter o placeholder {id}. Ex.: " +
+                "https://www.basededatostea.xyz/img/lmfv/{id}.jpg",
+                nameof(imageUrlTemplate));
 
         var slug = Slugify(name);
         if (string.IsNullOrEmpty(slug))
@@ -76,11 +83,12 @@ public class FileModRepository : IModRepository
 
         var mod = new Mod
         {
-            Name         = name.Trim(),
-            Slug         = slug,
-            GameFileName = gameFileName,
-            MrgFileName  = mrgFileName,
-            CreatedAt    = DateTime.Now,
+            Name             = name.Trim(),
+            Slug             = slug,
+            GameFileName     = gameFileName,
+            MrgFileName      = mrgFileName,
+            ImageUrlTemplate = imageUrlTemplate.Trim(),
+            CreatedAt        = DateTime.Now,
         };
 
         existing.Add(mod);
