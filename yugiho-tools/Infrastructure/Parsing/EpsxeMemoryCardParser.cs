@@ -178,6 +178,258 @@ public class EpsxeMemoryCardParser : IMemoryCardParser
         return bestEntries;
     }
 
+    /// <summary>
+    /// Localiza o trunk de FM dentro do save.
+    /// 1) Tenta o offset conhecido do FM-US (SLUS-01411): 80 bytes após o
+    ///    header+ícones (= file offset 0x2250 quando o save está em block 1).
+    /// 2) Se a validação falhar, executa heurística byte-per-card.
+    /// 3) Por último, tenta heurística 16-bit-per-card (mods exóticos).
+    /// </summary>
+    public MemoryCardTrunk? FindTrunk(byte[] data, MemoryCardSave save)
+    {
+        const int HeaderSkip       = 0x200;
+        const int FmTrunkOffset    = 80;     // offset confirmado para FM-US e MODs derivados
+        int saveStart = save.StartBlock * BlockSize + HeaderSkip;
+        int saveLen   = Math.Min(save.BlockCount * BlockSize,
+                                 data.Length - save.StartBlock * BlockSize) - HeaderSkip;
+        if (saveLen <= CardCount) return null;
+
+        // Tentativa 1: offset hardcoded do FM. Valida que a janela de 722
+        // bytes seja plausível (todos ≤ 99, ≥ 1 não-zero).
+        if (saveLen >= FmTrunkOffset + CardCount)
+        {
+            int absolute = saveStart + FmTrunkOffset;
+            int violations = 0, nonZero = 0;
+            for (int i = 0; i < CardCount; i++)
+            {
+                byte b = data[absolute + i];
+                if (b > 99) violations++;
+                else if (b > 0) nonZero++;
+            }
+            if (violations == 0 && nonZero > 0)
+            {
+                var counts = new byte[CardCount];
+                Array.Copy(data, absolute, counts, 0, CardCount);
+                return new MemoryCardTrunk(save, absolute, 1, counts);
+            }
+        }
+
+        // Tentativa 2/3: heurísticas (mods com layout não padrão)
+        var byteResult = FindTrunkByte(data, saveStart, saveLen);
+        var wordResult = FindTrunkWord(data, saveStart, saveLen);
+
+        int byteScore = byteResult?.NonZero ?? -1;
+        int wordScore = wordResult?.NonZero ?? -1;
+
+        if (byteScore < 0 && wordScore < 0) return null;
+
+        if (byteScore >= wordScore)
+            return new MemoryCardTrunk(save, byteResult!.Value.Offset, 1, byteResult.Value.Counts);
+
+        return new MemoryCardTrunk(save, wordResult!.Value.Offset, 2, wordResult.Value.Counts);
+    }
+
+    private static (int Offset, byte[] Counts, int NonZero)? FindTrunkByte(byte[] data, int saveStart, int saveLen)
+    {
+        const int MaxViolations = CardCount / 20; // ≤ 5%
+        int bestOffset  = -1;
+        int bestNonZero = 0;
+
+        for (int offset = 0; offset + CardCount <= saveLen; offset++)
+        {
+            int violations = 0;
+            int nonZero = 0;
+            for (int i = 0; i < CardCount; i++)
+            {
+                byte b = data[saveStart + offset + i];
+                if (b > 99) { violations++; if (violations > MaxViolations) break; continue; }
+                if (b > 0)  nonZero++;
+            }
+            if (violations > MaxViolations) continue;
+            if (nonZero < 1) continue;
+            if (nonZero > bestNonZero)
+            {
+                bestNonZero = nonZero;
+                bestOffset  = offset;
+            }
+        }
+
+        if (bestOffset < 0) return null;
+        var counts = new byte[CardCount];
+        for (int i = 0; i < CardCount; i++)
+        {
+            byte b = data[saveStart + bestOffset + i];
+            counts[i] = b > 99 ? (byte)0 : b;  // clipa violações para 0 na visualização
+        }
+        return (saveStart + bestOffset, counts, bestNonZero);
+    }
+
+    private static (int Offset, byte[] Counts, int NonZero)? FindTrunkWord(byte[] data, int saveStart, int saveLen)
+    {
+        const int MaxViolations = CardCount / 20;
+        int trunkLen = CardCount * 2;
+        int bestOffset  = -1;
+        int bestNonZero = 0;
+
+        for (int offset = 0; offset + trunkLen <= saveLen; offset++)
+        {
+            int violations = 0;
+            int nonZero = 0;
+            for (int i = 0; i < CardCount; i++)
+            {
+                int v = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(
+                    data.AsSpan(saveStart + offset + i * 2, 2));
+                if (v > 99) { violations++; if (violations > MaxViolations) break; continue; }
+                if (v > 0)  nonZero++;
+            }
+            if (violations > MaxViolations) continue;
+            if (nonZero < 1) continue;
+            if (nonZero > bestNonZero)
+            {
+                bestNonZero = nonZero;
+                bestOffset  = offset;
+            }
+        }
+
+        if (bestOffset < 0) return null;
+
+        var counts = new byte[CardCount];
+        for (int i = 0; i < CardCount; i++)
+        {
+            int v = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(
+                data.AsSpan(saveStart + bestOffset + i * 2, 2));
+            counts[i] = (byte)(v > 99 ? 0 : v);
+        }
+        return (saveStart + bestOffset, counts, bestNonZero);
+    }
+
+    /// <summary>
+    /// Reescreve o trunk no arquivo + atualiza os 2 CRC16-CCITT do save block
+    /// e zera os respectivos fillers, em ambas as metades (main e backup).
+    ///
+    /// Estrutura confirmada (FM-US e mods derivados como TLMFV):
+    ///  • Trunk main em block_start + 0x250 (720 bytes)
+    ///  • CRC#1 cobre block_start + 0x200 .. 0x53D (gravado em 0x53E-0x53F MSB-first)
+    ///  • Filler #1 em 0x540-0x57F (zerado pós-save)
+    ///  • CRC#2 cobre block_start + 0x600 .. 0x7FD (gravado em 0x7FE-0x7FF)
+    ///  • Filler #2 em 0x800-0x82F (zerado pós-save)
+    ///  • Tudo isso é espelhado em block_start + 0x680 (backup half)
+    ///
+    /// Sem o CRC correto, o jogo mostra "illegal data!" ao carregar.
+    /// </summary>
+    public async Task SaveTrunkAsync(
+        string filePath,
+        MemoryCardTrunk trunk,
+        IReadOnlyDictionary<int, int> counts)
+    {
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException("Memory card não encontrado.", filePath);
+
+        // Backup automático antes de mexer no arquivo
+        WriteAutoBackup(filePath);
+
+        var bytes = await File.ReadAllBytesAsync(filePath);
+        int span = CardCount * trunk.BytesPerEntry;
+        if (trunk.OffsetInFile + span > bytes.Length)
+            throw new InvalidDataException("Offset do trunk fora do arquivo.");
+
+        // Trunk offset == block_start + 0x250
+        int blockStart = trunk.OffsetInFile - 0x250;
+        const int BackupDelta = 0x680;
+
+        // Escreve trunk + recalcula CRCs nas DUAS metades (main e backup)
+        ApplyHalf(bytes, blockStart, trunk, counts);
+        if (blockStart + BackupDelta + 0x830 <= bytes.Length)
+            ApplyHalf(bytes, blockStart + BackupDelta, trunk, counts);
+
+        await File.WriteAllBytesAsync(filePath, bytes);
+    }
+
+    /// <summary>
+    /// Atualiza uma metade do save block (main ou backup): grava trunk,
+    /// recomputa os 2 CRCs e zera os fillers.
+    /// </summary>
+    private static void ApplyHalf(
+        byte[] bytes, int halfStart, MemoryCardTrunk trunk,
+        IReadOnlyDictionary<int, int> counts)
+    {
+        // 1. Trunk em halfStart + 0x250
+        WriteCounts(bytes, halfStart + 0x250, trunk, counts);
+
+        // 2. CRC#1 sobre [halfStart+0x200 .. halfStart+0x53D] inclusive
+        ushort crc1 = Crc16Ccitt(bytes, halfStart + 0x200, 0x53E - 0x200);
+        bytes[halfStart + 0x53E] = (byte)((crc1 >> 8) & 0xFF);  // MSB
+        bytes[halfStart + 0x53F] = (byte)(crc1 & 0xFF);          // LSB
+        for (int i = halfStart + 0x540; i <= halfStart + 0x57F; i++) bytes[i] = 0;
+
+        // 3. CRC#2 sobre [halfStart+0x600 .. halfStart+0x7FD] inclusive
+        ushort crc2 = Crc16Ccitt(bytes, halfStart + 0x600, 0x7FE - 0x600);
+        bytes[halfStart + 0x7FE] = (byte)((crc2 >> 8) & 0xFF);
+        bytes[halfStart + 0x7FF] = (byte)(crc2 & 0xFF);
+        for (int i = halfStart + 0x800; i <= halfStart + 0x82F; i++) bytes[i] = 0;
+    }
+
+    /// <summary>CRC16-CCITT, polynomial 0x1021, init 0x0000, MSB-first.</summary>
+    private static ushort Crc16Ccitt(byte[] data, int offset, int length)
+    {
+        const ushort polynomial = 0x1021;
+        ushort crc = 0x0000;
+        for (int i = 0; i < length; i++)
+        {
+            crc ^= (ushort)(data[offset + i] << 8);
+            for (int j = 0; j < 8; j++)
+            {
+                if ((crc & 0x8000) != 0)
+                    crc = (ushort)((crc << 1) ^ polynomial);
+                else
+                    crc <<= 1;
+            }
+        }
+        return crc;
+    }
+
+    private static void WriteCounts(
+        byte[] bytes, int offset, MemoryCardTrunk trunk,
+        IReadOnlyDictionary<int, int> counts)
+    {
+        for (int i = 0; i < CardCount; i++)
+        {
+            int cardId = i + 1;
+            int v = counts.TryGetValue(cardId, out var c) ? c : trunk.Counts[i];
+            if (v < 0)  v = 0;
+            if (v > 99) v = 99;
+
+            if (trunk.BytesPerEntry == 1)
+                bytes[offset + i] = (byte)v;
+            else
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(
+                    bytes.AsSpan(offset + i * 2, 2), (ushort)v);
+        }
+    }
+
+    /// <summary>Cria <c>filePath.bak-yyyyMMdd_HHmmss</c> e mantém só os 5 mais recentes.</summary>
+    private static void WriteAutoBackup(string filePath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(filePath) ?? ".";
+            var name = Path.GetFileName(filePath);
+            var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var backupPath = Path.Combine(dir, $"{name}.bak-{stamp}");
+            File.Copy(filePath, backupPath, overwrite: false);
+
+            // Limpa backups antigos (mantém os 5 mais recentes)
+            var oldBackups = Directory.GetFiles(dir, $"{name}.bak-*")
+                .OrderByDescending(p => p)
+                .Skip(5);
+            foreach (var old in oldBackups)
+            {
+                try { File.Delete(old); } catch { /* ignora */ }
+            }
+        }
+        catch { /* falha de backup não bloqueia o save */ }
+    }
+
     private static string ReadAscii(byte[] data, int offset, int length)
     {
         if (offset + length > data.Length) return "";

@@ -10,6 +10,7 @@
 @inject ParseMemoryCardUseCase ParseMemoryCardUseCase
 @inject ListModsUseCase ListModsUseCase
 @inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
+@inject yugiho_tools.Domain.Interfaces.IMemoryCardParser MemoryCardParser
 @inject yugiho_tools.Application.Services.CurrentModContext ModContext
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -160,27 +161,33 @@
             }
         </MudPaper>
 
-        @if (_selectedSave != null && _cards != null && _selectedSave.Cards.Count == 0)
+        @if (_selectedSave != null && _cards != null)
         {
-            <MudAlert Severity="Severity.Warning" Class="mb-3"
-                      Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
-                <strong>Não foi possível obter informações no save informado.</strong>
-                <br />
-                <span style="color:#aa9b6a;">
-                    O save <code>@_selectedSave.GameCode</code> /
-                    <code>@_selectedSave.SaveId</code> foi lido, mas o algoritmo
-                    não localizou um padrão reconhecido de deck/trunk de Forbidden
-                    Memories. Pode ser de outro jogo, de uma versão com layout
-                    diferente ou estar comprimido/criptografado.
-                </span>
-            </MudAlert>
-        }
+            <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true"
+                     Color="Color.Primary" Class="mb-3"
+                     PanelClass="pa-0" Style="background:transparent;">
 
-        @if (_selectedSave != null && _cards != null && _selectedSave.Cards.Count > 0)
-        {
-            <!-- ─── Cartas extraídas ──────────────────────────────── -->
-            <MudPaper Class="pa-4 mb-3" Elevation="3"
-                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <!-- ═══════════════ Tab 1: My Deck ═══════════════ -->
+                <MudTabPanel Text="My Deck" Icon="@Icons.Material.Filled.Style">
+                    @if (_selectedSave.Cards.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mb-3"
+                                  Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
+                            <strong>Não foi possível obter informações no save informado.</strong>
+                            <br />
+                            <span style="color:#aa9b6a;">
+                                O save <code>@_selectedSave.GameCode</code> /
+                                <code>@_selectedSave.SaveId</code> foi lido, mas o algoritmo
+                                não localizou um padrão reconhecido de deck de Forbidden
+                                Memories. Pode ser de outro jogo, de uma versão com layout
+                                diferente ou estar comprimido/criptografado.
+                            </span>
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <MudPaper Class="pa-4 mb-3" Elevation="3"
+                                  Style="background:#141428; border:1px solid #2a2a6e;">
                 <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
                     <div>
                         <MudText Typo="Typo.overline"
@@ -288,6 +295,153 @@
                     Nenhuma fusão possível com as cartas extraídas deste save.
                 </MudAlert>
             }
+                    }
+                </MudTabPanel>
+
+                <!-- ═══════════════ Tab 2: Editor ═══════════════ -->
+                <MudTabPanel Text="Editor" Icon="@Icons.Material.Filled.Edit">
+                    @if (_trunk == null)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mb-3"
+                                  Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
+                            <strong>Trunk não localizado neste save.</strong>
+                            <br />
+                            <span style="color:#aa9b6a;">
+                                Não foi possível identificar o padrão da coleção
+                                (722 entradas) no save selecionado.
+                            </span>
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <MudPaper Class="pa-4 mb-3" Elevation="3"
+                                  Style="background:#141428; border:1px solid #2a2a6e;">
+
+                            <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
+                                <div>
+                                    <MudText Typo="Typo.overline"
+                                             Style="color:#888; letter-spacing:2px;">
+                                        EDITOR DE COLEÇÃO
+                                    </MudText>
+                                    <MudText Typo="Typo.h6" Style="color:#c8a415; font-weight:700;">
+                                        @_counts.Values.Count(c => c > 0) cartas distintas ·
+                                        @_counts.Values.Sum() total
+                                    </MudText>
+                                </div>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                           Size="Size.Large"
+                                           StartIcon="@Icons.Material.Filled.Save"
+                                           OnClick="SaveTrunk"
+                                           Disabled="@(_isSavingTrunk || !_hasUnsavedChanges)"
+                                           Style="font-weight:700; min-width:220px;">
+                                    @(_isSavingTrunk ? "SALVANDO..." : "SALVAR ALTERAÇÕES")
+                                </MudButton>
+                            </div>
+
+                            <MudGrid Spacing="2" Class="mb-2">
+                                <MudItem xs="12" sm="6" md="5">
+                                    <MudTextField T="string"
+                                                  Value="@_editorFilter"
+                                                  ValueChanged="@(v => { _editorFilter = v ?? ""; })"
+                                                  Immediate="true"
+                                                  Label="Filtrar por nome ou #ID"
+                                                  Variant="Variant.Outlined"
+                                                  Adornment="Adornment.Start"
+                                                  AdornmentIcon="@Icons.Material.Filled.Search" />
+                                </MudItem>
+                                <MudItem xs="6" sm="3" md="2">
+                                    <MudNumericField T="int?" @bind-Value="_minCount"
+                                                     Label="Qtd min"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" Max="99" Clearable="true" />
+                                </MudItem>
+                                <MudItem xs="6" sm="3" md="2">
+                                    <MudNumericField T="int?" @bind-Value="_maxCount"
+                                                     Label="Qtd max"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" Max="99" Clearable="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="3" Class="d-flex align-center">
+                                    <MudSwitch T="bool" @bind-Value="_editorMonstersOnly"
+                                               Color="Color.Primary"
+                                               Label="Apenas monstros" />
+                                </MudItem>
+                            </MudGrid>
+
+                            <div class="d-flex gap-2 mb-2 flex-wrap">
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           Color="Color.Default"
+                                           OnClick="@(() => { _minCount = 1; _maxCount = null; })"
+                                           StartIcon="@Icons.Material.Filled.FilterAlt">
+                                    Só cartas que possuo
+                                </MudButton>
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           Color="Color.Default"
+                                           OnClick="@(() => { _minCount = null; _maxCount = 0; })"
+                                           StartIcon="@Icons.Material.Filled.FilterAltOff">
+                                    Só cartas que não tenho
+                                </MudButton>
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           Color="Color.Default"
+                                           OnClick="@(() => { _minCount = null; _maxCount = null; _editorFilter = ""; })"
+                                           StartIcon="@Icons.Material.Filled.Clear">
+                                    Limpar filtros
+                                </MudButton>
+                            </div>
+
+                            @{
+                                var editorList = FilteredEditorCards().ToList();
+                            }
+                            <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
+                                @editorList.Count cartas listadas
+                            </MudText>
+
+                            <MudTable Items="editorList" Dense="true" Hover="true"
+                                      Virtualize="true" FixedHeader="true"
+                                      Height="clamp(240px, 50vh, 600px)"
+                                      Class="editor-table">
+                                <HeaderContent>
+                                    <MudTh Style="width:70px;">#ID</MudTh>
+                                    <MudTh>Nome</MudTh>
+                                    <MudTh Style="width:140px;">Tipo</MudTh>
+                                    <MudTh Style="width:90px;">Atrib.</MudTh>
+                                    <MudTh Style="width:120px;">ATK / DEF</MudTh>
+                                    <MudTh Style="width:160px;">Qtd</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd>@context.CardId</MudTd>
+                                    <MudTd>
+                                        <span style="@(_counts.GetValueOrDefault(context.CardId) > 0
+                                                       ? "color:#c8a415; font-weight:600;"
+                                                       : "color:#888;")">
+                                            @context.Name
+                                        </span>
+                                    </MudTd>
+                                    <MudTd>@CardMetadata.TypeName(context.CardType)</MudTd>
+                                    <MudTd>@CardMetadata.AttributeName(context.Attribute)</MudTd>
+                                    <MudTd>@context.Attack / @context.Defense</MudTd>
+                                    <MudTd>
+                                        <MudNumericField T="int"
+                                                         Value="@_counts.GetValueOrDefault(context.CardId)"
+                                                         ValueChanged="@(v => OnCountChanged(context.CardId, v))"
+                                                         Min="0" Max="99"
+                                                         Variant="Variant.Outlined"
+                                                         Margin="Margin.Dense" />
+                                    </MudTd>
+                                </RowTemplate>
+                            </MudTable>
+
+                            @if (_hasUnsavedChanges)
+                            {
+                                <MudText Typo="Typo.caption" Style="color:#c8a415;" Class="mt-2">
+                                    ⚠ Há alterações não salvas — clique em "Salvar alterações" para
+                                    persistir no memory card.
+                                </MudText>
+                            }
+                        </MudPaper>
+                    }
+                </MudTabPanel>
+            </MudTabs>
         }
     }
 
@@ -308,6 +462,18 @@
     .save-selected {
         outline: 2px solid #c8a415;
     }
+
+    /* Garante que o wrapper de virtualização do MudTable tenha overflow:auto.
+       Alguns combos de FixedHeader+Virtualize+Height não aplicam por padrão. */
+    .editor-table .mud-table-container,
+    .editor-table .mud-virtualize {
+        overflow-y: auto !important;
+        overflow-x: auto;
+    }
+
+    .editor-table .mud-table-cell {
+        white-space: nowrap;
+    }
 </style>
 
 @code {
@@ -325,9 +491,20 @@
 
     // Memory card
     private string? _mcrFilePath;
+    private byte[]? _mcrBytes;
     private bool _isParsing;
     private MemoryCardParseResult? _parseResult;
     private MemoryCardSave? _selectedSave;
+
+    // Editor (trunk)
+    private MemoryCardTrunk? _trunk;
+    private readonly Dictionary<int, int> _counts = new();
+    private string _editorFilter = "";
+    private bool   _editorMonstersOnly = true;
+    private int?   _minCount;
+    private int?   _maxCount;
+    private bool   _isSavingTrunk;
+    private bool   _hasUnsavedChanges;
 
     // Fusion calc
     private bool _isCalculating;
@@ -412,15 +589,20 @@
         if (r is null) return;
 
         _mcrFilePath  = r.FullPath;
+        _mcrBytes     = null;
         _parseResult  = null;
         _selectedSave = null;
         _allSequences = null;
+        _trunk        = null;
+        _counts.Clear();
+        _hasUnsavedChanges = false;
         _isParsing    = true;
         await InvokeAsync(StateHasChanged);
 
         try
         {
-            _parseResult = await ParseMemoryCardUseCase.ExecuteAsync(_mcrFilePath!);
+            _mcrBytes    = await File.ReadAllBytesAsync(_mcrFilePath!);
+            _parseResult = MemoryCardParser.Parse(_mcrBytes);
 
             int totalSaves     = _parseResult.Saves.Count;
             int withCards      = _parseResult.Saves.Count(s => s.Cards.Count > 0);
@@ -434,6 +616,7 @@
             // fall back to the first save in the card.
             _selectedSave = _parseResult.Saves.FirstOrDefault(s => s.Cards.Count > 0)
                             ?? _parseResult.Saves.FirstOrDefault();
+            LoadTrunkForSelectedSave();
         }
         catch (Exception ex)
         {
@@ -450,6 +633,87 @@
     {
         _selectedSave = save;
         _allSequences = null;
+        LoadTrunkForSelectedSave();
+    }
+
+    private void LoadTrunkForSelectedSave()
+    {
+        _trunk = null;
+        _counts.Clear();
+        _hasUnsavedChanges = false;
+        if (_selectedSave is null || _mcrBytes is null) return;
+
+        try
+        {
+            _trunk = MemoryCardParser.FindTrunk(_mcrBytes, _selectedSave);
+            if (_trunk != null)
+            {
+                for (int i = 0; i < _trunk.Counts.Length; i++)
+                    _counts[i + 1] = _trunk.Counts[i];
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao ler trunk: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void OnCountChanged(int cardId, int newCount)
+    {
+        if (newCount < 0)  newCount = 0;
+        if (newCount > 99) newCount = 99;
+        if (_counts.TryGetValue(cardId, out var current) && current == newCount) return;
+        _counts[cardId] = newCount;
+        _hasUnsavedChanges = true;
+    }
+
+    private async Task SaveTrunk()
+    {
+        if (_trunk is null || string.IsNullOrEmpty(_mcrFilePath)) return;
+        _isSavingTrunk = true;
+        try
+        {
+            await MemoryCardParser.SaveTrunkAsync(_mcrFilePath!, _trunk, _counts);
+            // Recarrega bytes em memória para refletir o novo estado salvo
+            _mcrBytes = await File.ReadAllBytesAsync(_mcrFilePath!);
+            _trunk = MemoryCardParser.FindTrunk(_mcrBytes, _trunk.Save);
+            _hasUnsavedChanges = false;
+            Snackbar.Add("Memory card atualizado com sucesso.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao salvar: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isSavingTrunk = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private IEnumerable<Card> FilteredEditorCards()
+    {
+        if (_cards is null) return [];
+
+        var query = _cards.Where(c => !string.IsNullOrWhiteSpace(c.Name));
+
+        if (_editorMonstersOnly)
+            query = query.Where(c => c.Attribute < 6); // 0..5 = atributos de monstro
+
+        if (!string.IsNullOrWhiteSpace(_editorFilter))
+        {
+            var term = _editorFilter.Trim();
+            query = query.Where(c =>
+                c.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                c.CardId.ToString().Contains(term));
+        }
+
+        if (_minCount.HasValue)
+            query = query.Where(c => _counts.GetValueOrDefault(c.CardId) >= _minCount.Value);
+        if (_maxCount.HasValue)
+            query = query.Where(c => _counts.GetValueOrDefault(c.CardId) <= _maxCount.Value);
+
+        return query.OrderBy(c => c.CardId);
     }
 
     private string SaveCardStyle(MemoryCardSave save, bool selected)
