@@ -17,6 +17,18 @@ public class Card()
     public List<int> FusionMaterials { get; set; } = [];
     public List<int> FusionResults { get; set; } = [];
 
+    /// <summary>
+    /// Compatible equip cards (card IDs, 0-based). Populated when this card is a
+    /// monster: lists which equip-magic cards can target it. Populated by RomParser.
+    /// </summary>
+    public List<int> Equips { get; set; } = [];
+
+    /// <summary>
+    /// Monsters this card can equip onto (card IDs, 0-based). Populated when this
+    /// card is an equip: inverse of <see cref="Equips"/>. Computed by RomParser.
+    /// </summary>
+    public List<int> EquipTargets { get; set; } = [];
+
     // Raw grayscale pixels (40×32) for OpenCV template matching
     public byte[]? ThumbnailPixels { get; set; }
 

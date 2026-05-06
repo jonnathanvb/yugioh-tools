@@ -1,6 +1,7 @@
 @page "/"
 @using yugiho_tools.Application.DTOs
 @using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.UseCases
 @using yugiho_tools.Domain.Entities
 
 @using Color = MudBlazor.Color
@@ -517,6 +518,7 @@
 
     // ── Loading ────────────────────────────────────────────────────
     private IReadOnlyList<Card>? _cards;
+    private LoadedRomData?       _romData;
     private bool   _isLoading;
     private int    _loadProgress;
     private string _loadingMessage = "";
@@ -715,11 +717,13 @@
                 InvokeAsync(StateHasChanged);
             });
 
-            _cards = await LoadRomUseCase.ExecuteAsync(
+            _romData = await LoadRomUseCase.ExecuteAsync(
                 ModRepo.GetGameFilePath(mod),
                 ModRepo.GetMrgFilePath(mod),
                 loadThumbnails: true,
-                progress);
+                profile: null,
+                progress: progress);
+            _cards = _romData.Cards;
 
             BuildFusionMaterialIndex();
 
@@ -849,7 +853,12 @@
 
     private async Task ShowCardDetails(Card c)
     {
-        var parameters = new DialogParameters { ["Card"] = c };
+        var parameters = new DialogParameters
+        {
+            ["Card"]     = c,
+            ["AllCards"] = _cards,
+            ["RomData"]  = _romData,
+        };
         var options = new DialogOptions
         {
             CloseButton  = true,

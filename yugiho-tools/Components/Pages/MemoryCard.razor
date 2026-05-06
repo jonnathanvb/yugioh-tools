@@ -1,6 +1,7 @@
 @page "/memory-card"
 @using yugiho_tools.Application.DTOs
 @using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.UseCases
 @using yugiho_tools.Domain.Entities
 
 @using Color = MudBlazor.Color
@@ -380,11 +381,13 @@
                 InvokeAsync(StateHasChanged);
             });
 
-            _cards = await LoadRomUseCase.ExecuteAsync(
+            var rom = await LoadRomUseCase.ExecuteAsync(
                 ModRepo.GetGameFilePath(mod),
                 ModRepo.GetMrgFilePath(mod),
                 loadThumbnails: true,
-                progress);
+                profile: null,
+                progress: progress);
+            _cards = rom.Cards;
         }
         catch (Exception ex)
         {

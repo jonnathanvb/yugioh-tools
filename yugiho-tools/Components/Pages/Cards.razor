@@ -1,0 +1,182 @@
+@page "/cards"
+@using yugiho_tools.Application.DTOs
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.UseCases
+@using yugiho_tools.Components.Shared
+@using yugiho_tools.Domain.Entities
+
+@using Color = MudBlazor.Color
+@using Size  = MudBlazor.Size
+
+@inject LoadRomDataUseCase LoadRomUseCase
+@inject ListModsUseCase ListModsUseCase
+@inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
+@inject yugiho_tools.Application.Services.CurrentModContext ModContext
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+
+<PageTitle>Cartas — Yu-Gi-Oh! FM</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.False" Class="py-6" Style="max-width:80%; margin:0 auto;">
+    <MudText Typo="Typo.h4" Style="color:#c8a415; font-weight:700; letter-spacing:1px;" Class="mb-1">
+        <MudIcon Icon="@Icons.Material.Filled.Style" Class="mr-2" />
+        Catálogo de Cartas
+    </MudText>
+    <MudText Typo="Typo.body2" Style="color:#888;" Class="mb-4">
+        Explore as cartas do MOD selecionado. Clique para ver detalhes — incluindo
+        equips compatíveis, fusões em que aparece e quem dropa cada carta.
+    </MudText>
+
+    @if (_mods.Count == 0)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-3">
+            Nenhum MOD cadastrado.
+            <MudButton Variant="Variant.Text" Size="Size.Small"
+                       OnClick="@(() => Nav.NavigateTo("/mods"))">
+                Cadastrar agora
+            </MudButton>
+        </MudAlert>
+    }
+    else
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="3"
+                  Style="background:#141428; border:1px solid #2a2a6e;">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="6">
+                    <MudSelect T="string" Value="_selectedSlug"
+                               ValueChanged="OnModChanged"
+                               Label="MOD selecionado"
+                               Variant="Variant.Outlined">
+                        @foreach (var m in _mods)
+                        {
+                            <MudSelectItem T="string" Value="@m.Slug">@m.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                @if (_isLoading)
+                {
+                    <MudItem xs="12" md="6">
+                        <MudProgressLinear Color="Color.Primary" Value="@_loadProgress"
+                                           Buffer="false" />
+                        <MudText Typo="Typo.caption" Style="color:#888;">@_loadingMessage</MudText>
+                    </MudItem>
+                }
+                else if (_cards is not null)
+                {
+                    <MudItem xs="12" md="6">
+                        <MudText Typo="Typo.body2" Style="color:#888;">
+                            <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Small" />
+                            @_cards.Count cartas
+                            @if (_romData is { Duelists.Count: > 0 } rd)
+                            {
+                                <span> · @rd.Duelists.Count duelistas</span>
+                            }
+                        </MudText>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudPaper>
+
+        @if (_cards is { Count: > 0 })
+        {
+            <CardCatalog Title="Cartas do MOD"
+                         Cards="@_cards"
+                         OnCardClick="OpenDetail"
+                         OnCardLongPress="OpenDetail"
+                         StartExpanded="true"
+                         MaxGridCards="500" />
+        }
+    }
+</MudContainer>
+
+@code {
+    private List<Mod> _mods = [];
+    private string?  _selectedSlug;
+
+    private IReadOnlyList<Card>? _cards;
+    private LoadedRomData?       _romData;
+    private bool   _isLoading;
+    private int    _loadProgress;
+    private string _loadingMessage = "";
+
+    private const string PrefSelectedSlugKey = "selected-mod-slug";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CardMetadata.LoadAsync();
+        _mods = (await ListModsUseCase.ExecuteAsync()).ToList();
+
+        var stored = Microsoft.Maui.Storage.Preferences.Default.Get(PrefSelectedSlugKey, "");
+        var auto = !string.IsNullOrEmpty(stored) && _mods.Any(m => m.Slug == stored)
+            ? stored
+            : _mods.FirstOrDefault()?.Slug;
+
+        if (auto is not null) await OnModChanged(auto);
+    }
+
+    private async Task OnModChanged(string slug)
+    {
+        _selectedSlug = slug;
+        Microsoft.Maui.Storage.Preferences.Default.Set(PrefSelectedSlugKey, slug);
+
+        var mod = _mods.FirstOrDefault(m => m.Slug == slug);
+        if (mod is null) return;
+        ModContext.Set(mod);
+
+        _isLoading = true;
+        _loadProgress = 0;
+        _cards = null;
+        _romData = null;
+
+        try
+        {
+            var progress = new Progress<int>(p =>
+            {
+                _loadProgress = p;
+                _loadingMessage = p < 25 ? "Lendo arquivos ROM..."
+                                : p < 30 ? "Decodificando cartas e duelistas..."
+                                : p < 95 ? "Carregando thumbnails..."
+                                         : "Finalizando...";
+                InvokeAsync(StateHasChanged);
+            });
+
+            _romData = await LoadRomUseCase.ExecuteAsync(
+                ModRepo.GetGameFilePath(mod),
+                ModRepo.GetMrgFilePath(mod),
+                loadThumbnails: false,
+                profile: null,
+                progress: progress);
+            _cards = _romData.Cards;
+
+            Snackbar.Add($"MOD '{mod.Name}': {_cards.Count} cartas, {_romData.Duelists.Count} duelistas.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao carregar MOD: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OpenDetail(Card card)
+    {
+        var p = new DialogParameters
+        {
+            ["Card"]     = card,
+            ["AllCards"] = _cards,
+            ["RomData"]  = _romData,
+        };
+        var opts = new DialogOptions
+        {
+            CloseButton  = true,
+            MaxWidth     = MaxWidth.Medium,
+            FullWidth    = true,
+            BackdropClick = true,
+        };
+        await DialogService.ShowAsync<CardDetailDialog>(card.Name, p, opts);
+    }
+}
