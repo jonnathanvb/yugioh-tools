@@ -1,21 +1,49 @@
+using yugiho_tools.Application.DTOs;
 using yugiho_tools.Domain.Entities;
 using yugiho_tools.Domain.Interfaces;
+using yugiho_tools.Domain.ValueObjects;
 
 namespace yugiho_tools.Application.UseCases;
 
 public class LoadRomDataUseCase(IRomParser parser)
 {
-    public async Task<IReadOnlyList<Card>> ExecuteAsync(
+    public async Task<LoadedRomData> ExecuteAsync(
         string gameFilePath,
         string mrgFilePath,
         bool loadThumbnails,
+        RomOffsetProfile? profile = null,
         IProgress<int>? progress = null)
     {
-        var cards = await parser.ParseAsync(gameFilePath, mrgFilePath, progress);
+        var data = await parser.ParseAsync(gameFilePath, mrgFilePath, profile, progress);
 
         if (loadThumbnails)
-            await parser.LoadThumbnailsAsync(cards, mrgFilePath, progress);
+            await parser.LoadThumbnailsAsync(data.Cards, mrgFilePath, profile, progress);
 
-        return cards;
+        return new LoadedRomData(data.Cards, data.Duelists);
+    }
+}
+
+public sealed record LoadedRomData(
+    IReadOnlyList<Card> Cards,
+    IReadOnlyList<Duelist> Duelists)
+{
+    /// <summary>
+    /// Returns every duelist that drops <paramref name="cardIndex"/> across the
+    /// three rank pools, with their probability weights. Empty list = no drops.
+    /// </summary>
+    public IReadOnlyList<DropProbability> GetDrops(int cardIndex)
+    {
+        if ((uint)cardIndex >= 722) return [];
+        var result = new List<DropProbability>();
+        foreach (var d in Duelists)
+        {
+            int sap = d.SaPow [cardIndex];
+            int sat = d.SaTec [cardIndex];
+            int bcd = d.BcdPow[cardIndex];
+            if (sap > 0) result.Add(new DropProbability(d.Id, d.Name, DropPoolKind.SaPow,  sap));
+            if (sat > 0) result.Add(new DropProbability(d.Id, d.Name, DropPoolKind.SaTec,  sat));
+            if (bcd > 0) result.Add(new DropProbability(d.Id, d.Name, DropPoolKind.BcdPow, bcd));
+        }
+        return result;
     }
 }

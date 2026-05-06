@@ -1,5 +1,7 @@
+@using yugiho_tools.Application.DTOs
 @using yugiho_tools.Application.Helpers
 @using yugiho_tools.Application.Services
+@using yugiho_tools.Application.UseCases
 @using yugiho_tools.Domain.Entities
 @inject CurrentModContext ModContext
 
@@ -13,12 +15,8 @@
                             border-radius:6px; border:1px solid #2a2a6e;" />
             </div>
             <div style="flex:1; min-width:280px;">
-                <MudText Typo="Typo.caption" Style="color:#888;">
-                    #@Card.CardId
-                </MudText>
-                <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
-                    @Card.Name
-                </MudText>
+                <MudText Typo="Typo.caption" Style="color:#888;">#@Card.CardId</MudText>
+                <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">@Card.Name</MudText>
 
                 <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
 
@@ -45,26 +43,197 @@
                 @if (!string.IsNullOrWhiteSpace(Card.Description))
                 {
                     <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
-                    <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
-                        Descrição
-                    </MudText>
-                    <MudText Typo="Typo.body2"
-                             Style="color:#cfcfe0; white-space:pre-wrap;">
+                    <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">Descrição</MudText>
+                    <MudText Typo="Typo.body2" Style="color:#cfcfe0; white-space:pre-wrap;">
                         @Card.Description
                     </MudText>
                 }
             </div>
         </div>
+
+        @* ── Equips ───────────────────────────────────────────────────── *@
+        @if (AllCards is not null)
+        {
+            var equipList     = ResolveEquipsForCard();
+            var equipTargets  = ResolveEquipTargets();
+
+            if (equipList.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                    Equips compatíveis (@equipList.Count)
+                </MudText>
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                    @foreach (var e in equipList)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                 Color="Color.Secondary"
+                                 OnClick="@(() => Reopen(e))">@e.Name</MudChip>
+                    }
+                </div>
+            }
+
+            if (equipTargets.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                    Pode equipar em (@equipTargets.Count)
+                </MudText>
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                    @foreach (var m in equipTargets)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                 Color="Color.Info"
+                                 OnClick="@(() => Reopen(m))">@m.Name</MudChip>
+                    }
+                </div>
+            }
+        }
+
+        @* ── Drops ──────────────────────────────────────────────────────── *@
+        @if (RomData is not null)
+        {
+            var drops = RomData.GetDrops(Card.CardId - 1)
+                              .OrderByDescending(d => d.Weight)
+                              .ToList();
+            if (drops.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                    Quem dropa (@drops.Count entradas)
+                </MudText>
+                <table class="mt-2"
+                       style="width:100%; color:#e0e0e0; font-size:13px; border-collapse:collapse;">
+                    <thead>
+                        <tr style="color:#888; text-align:left;">
+                            <th style="padding:4px 8px 4px 0;">Duelista</th>
+                            <th style="padding:4px 8px;">Pool</th>
+                            <th style="padding:4px 8px; text-align:right;">Peso</th>
+                            <th style="padding:4px 8px; text-align:right;">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in drops)
+                        {
+                            <tr style="border-top:1px solid #1e1e4a;">
+                                <td style="padding:4px 8px 4px 0;">@d.DuelistName</td>
+                                <td style="padding:4px 8px; color:@PoolColor(d.Pool); font-weight:600;">
+                                    @PoolName(d.Pool)
+                                </td>
+                                <td style="padding:4px 8px; text-align:right;">@d.Weight / 2048</td>
+                                <td style="padding:4px 8px; text-align:right; color:#c8a415;">
+                                    @d.Percent.ToString("F2")%
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else if (RomData.Duelists.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    Nenhum duelista dropa esta carta nas pools mapeadas (ou os offsets de drop deste MOD não foram detectados).
+                </MudText>
+            }
+        }
+
+        @* ── Fusões — esta carta é resultado de … ──────────────────────── *@
+        @if (AllCards is not null)
+        {
+            var asResult   = ResolveFusionsAsResult();
+            var asMaterial = ResolveFusionsAsMaterial();
+
+            <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+            <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                Fusões — produzem esta carta (@asResult.Count)
+            </MudText>
+            @if (asResult.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    Nenhuma fusão registrada produz esta carta.
+                </MudText>
+            }
+            else
+            {
+                <div class="mt-2" style="max-height:240px; overflow:auto;">
+                    @foreach (var (a, b) in asResult.Take(50))
+                    {
+                        <div class="d-flex align-center gap-1 my-1" style="font-size:13px;">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     OnClick="@(() => Reopen(a))">@a.Name</MudChip>
+                            <span style="color:#888;">+</span>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     OnClick="@(() => Reopen(b))">@b.Name</MudChip>
+                            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Style="color:#666;"/>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">
+                                @Card.Name
+                            </MudChip>
+                        </div>
+                    }
+                    @if (asResult.Count > 50)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666;">
+                            ... e +@(asResult.Count - 50) outros caminhos.
+                        </MudText>
+                    }
+                </div>
+            }
+
+            <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+            <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                Fusões — esta carta como material (@asMaterial.Count)
+            </MudText>
+            @if (asMaterial.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    Esta carta não aparece como material em nenhuma fusão.
+                </MudText>
+            }
+            else
+            {
+                <div class="mt-2" style="max-height:240px; overflow:auto;">
+                    @foreach (var (other, result) in asMaterial.Take(80))
+                    {
+                        <div class="d-flex align-center gap-1 my-1" style="font-size:13px;">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled">
+                                @Card.Name
+                            </MudChip>
+                            <span style="color:#888;">+</span>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     OnClick="@(() => Reopen(other))">@other.Name</MudChip>
+                            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" Style="color:#666;"/>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     Color="Color.Success"
+                                     OnClick="@(() => Reopen(result))">@result.Name</MudChip>
+                        </div>
+                    }
+                    @if (asMaterial.Count > 80)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666;">
+                            ... e +@(asMaterial.Count - 80) outras combinações.
+                        </MudText>
+                    }
+                </div>
+            }
+        }
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   OnClick="Close">Fechar</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Fechar</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     [Parameter, EditorRequired] public Card Card { get; set; } = default!;
+
+    /// <summary>Optional: full card list. Without it, the equip & fusion-link sections are hidden.</summary>
+    [Parameter] public IReadOnlyList<Card>? AllCards { get; set; }
+
+    /// <summary>Optional: full ROM data (cards + duelists). Without it, the drops section is hidden.</summary>
+    [Parameter] public LoadedRomData? RomData { get; set; }
+
+    [Inject] private IDialogService DialogService { get; set; } = default!;
 
     private const string LabelStyle =
         "color:#888; padding:4px 12px 4px 0; font-weight:500; vertical-align:top; width:160px;";
@@ -73,4 +242,112 @@
         string.Concat(Enumerable.Repeat("★", Math.Clamp(level, 0, 12)));
 
     private void Close() => MudDialog.Close(DialogResult.Ok(true));
+
+    /// <summary>Reopen the dialog focused on a different card without closing the modal stack.</summary>
+    private async Task Reopen(Card other)
+    {
+        MudDialog.Close(DialogResult.Ok(true));
+        var p = new DialogParameters
+        {
+            ["Card"]     = other,
+            ["AllCards"] = AllCards,
+            ["RomData"]  = RomData,
+        };
+        var opts = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Medium, FullWidth = true };
+        await DialogService.ShowAsync<CardDetailDialog>(other.Name, p, opts);
+    }
+
+    private List<Card> ResolveEquipsForCard()
+    {
+        if (AllCards is null) return [];
+        return Card.Equips
+            .Where(idx => idx >= 0 && idx < AllCards.Count)
+            .Select(idx => AllCards[idx])
+            .DistinctBy(c => c.CardId)
+            .OrderBy(c => c.Name)
+            .ToList();
+    }
+
+    private List<Card> ResolveEquipTargets()
+    {
+        if (AllCards is null) return [];
+        return Card.EquipTargets
+            .Where(idx => idx >= 0 && idx < AllCards.Count)
+            .Select(idx => AllCards[idx])
+            .DistinctBy(c => c.CardId)
+            .OrderBy(c => c.Name)
+            .ToList();
+    }
+
+    /// <summary>(material1, material2) tuples whose fusion result == this card.</summary>
+    private List<(Card, Card)> ResolveFusionsAsResult()
+    {
+        if (AllCards is null) return [];
+        int self = Card.CardId - 1;
+        var pairs = new List<(Card, Card)>();
+        foreach (var a in AllCards)
+        {
+            for (int i = 0; i < a.FusionResults.Count; i++)
+            {
+                if (a.FusionResults[i] != self) continue;
+                int b = a.FusionMaterials[i];
+                if (b < 0 || b >= AllCards.Count) continue;
+                if (a.CardId - 1 > b) continue; // dedupe (a,b) and (b,a)
+                pairs.Add((a, AllCards[b]));
+            }
+        }
+        return pairs;
+    }
+
+    /// <summary>(otherMaterial, result) for every fusion where this card is one of the two materials.</summary>
+    private List<(Card Other, Card Result)> ResolveFusionsAsMaterial()
+    {
+        if (AllCards is null) return [];
+        int self = Card.CardId - 1;
+        var list = new List<(Card, Card)>();
+
+        // Outgoing: this.FusionMaterials[i] = other → this.FusionResults[i] = result
+        for (int i = 0; i < Card.FusionMaterials.Count; i++)
+        {
+            int otherIdx = Card.FusionMaterials[i];
+            int resIdx   = Card.FusionResults[i];
+            if (otherIdx < 0 || otherIdx >= AllCards.Count || resIdx < 0 || resIdx >= AllCards.Count) continue;
+            list.Add((AllCards[otherIdx], AllCards[resIdx]));
+        }
+
+        // Incoming: any other.FusionMaterials[i] == self → other + this → result
+        foreach (var other in AllCards)
+        {
+            if (other.CardId - 1 == self) continue;
+            for (int i = 0; i < other.FusionMaterials.Count; i++)
+            {
+                if (other.FusionMaterials[i] != self) continue;
+                int resIdx = other.FusionResults[i];
+                if (resIdx < 0 || resIdx >= AllCards.Count) continue;
+                list.Add((other, AllCards[resIdx]));
+            }
+        }
+
+        return list
+            .GroupBy(t => (t.Item1.CardId, t.Item2.CardId))
+            .Select(g => g.First())
+            .OrderBy(t => t.Item1.Name)
+            .ToList();
+    }
+
+    private static string PoolName(DropPoolKind k) => k switch
+    {
+        DropPoolKind.SaPow  => "S/A POW",
+        DropPoolKind.SaTec  => "S/A TEC",
+        DropPoolKind.BcdPow => "B/C/D POW",
+        _ => "?",
+    };
+
+    private static string PoolColor(DropPoolKind k) => k switch
+    {
+        DropPoolKind.SaPow  => "#ef5350",   // red
+        DropPoolKind.SaTec  => "#42a5f5",   // blue
+        DropPoolKind.BcdPow => "#9ccc65",   // green
+        _ => "#999",
+    };
 }

@@ -1,0 +1,274 @@
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+
+@using Color = MudBlazor.Color
+@using Size  = MudBlazor.Size
+
+@inject CurrentModContext ModContext
+
+@*
+    Reusable card grid with filter bar (search, type, attribute, ATK/DEF range,
+    sort, "fusion-only" toggle). Used by Home (fusion picker) and Cards (browser).
+
+    Behaviors:
+      • Short click  → OnCardClick   (selecting / opening detail)
+      • Long press   → OnCardLongPress (3s, opens detail dialog upstream)
+      • Selected set is optional — pass HighlightSelected for the deck-builder use.
+*@
+
+<MudPaper Class="pa-4 mb-4" Elevation="3"
+          Style="background:#141428; border:1px solid #2a2a6e;">
+
+    <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
+        <MudButton Variant="Variant.Text" Size="Size.Medium"
+                   StartIcon="@(_expanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                   OnClick="@(() => _expanded = !_expanded)"
+                   Style="color:#c8a415; font-weight:700; letter-spacing:1px;">
+            <MudIcon Icon="@Icons.Material.Filled.GridView" Class="mr-1" />
+            @Title
+        </MudButton>
+
+        @if (ShowZoom)
+        {
+            <div class="d-flex align-center gap-1" title="Zoom do catálogo">
+                <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                               Size="Size.Small"
+                               OnClick="ZoomOut"
+                               Disabled="@(_zoom <= ZoomMin)" />
+                <MudText Style="min-width:42px; text-align:center; color:#c8a415; font-size:0.85rem;">
+                    @($"{(int)Math.Round(_zoom * 100)}%")
+                </MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Add"
+                               Size="Size.Small"
+                               OnClick="ZoomIn"
+                               Disabled="@(_zoom >= ZoomMax)" />
+            </div>
+        }
+    </div>
+
+    <MudCollapse Expanded="@_expanded">
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField T="string"
+                              Value="@_searchTerm"
+                              ValueChanged="@(v => { _searchTerm = v ?? ""; })"
+                              Immediate="true"
+                              Label="Nome, descrição ou #ID"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudSelect T="int?"
+                           Value="_filterType"
+                           ValueChanged="@(v => { _filterType = v; })"
+                           ToStringFunc="@(v => v.HasValue ? CardMetadata.TypeName(v.Value) : "")"
+                           Label="Tipo" Variant="Variant.Outlined"
+                           Clearable="true">
+                    @foreach (var t in CardMetadata.Types)
+                    {
+                        <MudSelectItem T="int?" Value="@((int?)t.Id)">@t.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudSelect T="int?"
+                           Value="_filterAttribute"
+                           ValueChanged="@(v => { _filterAttribute = v; })"
+                           ToStringFunc="@(v => v.HasValue ? CardMetadata.AttributeName(v.Value) : "")"
+                           Label="Atributo" Variant="Variant.Outlined"
+                           Clearable="true">
+                    @foreach (var a in CardMetadata.Attributes)
+                    {
+                        <MudSelectItem T="int?" Value="@((int?)a.Id)">@a.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="CardSortMode" @bind-Value="_sortMode"
+                           Label="Ordenar" Variant="Variant.Outlined">
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.Default">#ID</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkDesc">ATK ↓</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkAsc">ATK ↑</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.DefDesc">DEF ↓</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.DefAsc">DEF ↑</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.Type">Tipo</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        <MudGrid Spacing="2" Class="mb-3">
+            <MudItem xs="6" sm="3" md="2">
+                <MudNumericField T="int?" @bind-Value="_minAtk"
+                                 Label="ATK min" Variant="Variant.Outlined"
+                                 Min="0" Step="100" Clearable="true" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudNumericField T="int?" @bind-Value="_maxAtk"
+                                 Label="ATK max" Variant="Variant.Outlined"
+                                 Min="0" Step="100" Clearable="true" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudNumericField T="int?" @bind-Value="_minDef"
+                                 Label="DEF min" Variant="Variant.Outlined"
+                                 Min="0" Step="100" Clearable="true" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudNumericField T="int?" @bind-Value="_maxDef"
+                                 Label="DEF max" Variant="Variant.Outlined"
+                                 Min="0" Step="100" Clearable="true" />
+            </MudItem>
+            @if (FusionMaterialIds is not null)
+            {
+                <MudItem xs="12" md="4" Class="d-flex align-center">
+                    <MudSwitch T="bool" @bind-Value="_onlyFusionMaterials"
+                               Color="Color.Primary"
+                               Label="Só cartas usadas em fusão" />
+                </MudItem>
+            }
+        </MudGrid>
+
+        @{
+            var filtered = FilteredCards().Take(MaxGridCards).ToList();
+            var totalFiltered = FilteredCardsTotal();
+            int tileMinPx = (int)(80  * _zoom);
+            int tileMaxPx = (int)(110 * _zoom);
+        }
+        <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
+            @filtered.Count de @totalFiltered cartas
+            @(totalFiltered > MaxGridCards ? $" (mostrando primeiras {MaxGridCards} — refine o filtro)" : "")
+        </MudText>
+
+        <div class="card-grid"
+             style="@($"--tile-min:{tileMinPx}px; --tile-max:{tileMaxPx}px;")">
+            @foreach (var c in filtered)
+            {
+                bool selected = HighlightSelected?.Invoke(c) ?? false;
+                var card = c;
+                <div class="card-tile @(selected ? "selected" : "")"
+                     @onclick="() => InvokeClick(card)"
+                     @onmousedown="() => StartLongPress(card)"
+                     @onmouseup="CancelLongPress"
+                     @onmouseleave="CancelLongPress"
+                     @ontouchstart="() => StartLongPress(card)"
+                     @ontouchend="CancelLongPress"
+                     @ontouchcancel="CancelLongPress"
+                     title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense} · segure 3s para detalhes")">
+                    <img src="@CardImage.Url(ModContext.ImageUrlTemplate, c.CardId)" loading="lazy"
+                         class="card-tile-img" alt="@c.Name" />
+                    @if (selected)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                 Class="card-tile-check" />
+                    }
+                </div>
+            }
+        </div>
+    </MudCollapse>
+</MudPaper>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Catálogo de cartas";
+    [Parameter, EditorRequired] public IReadOnlyList<Card> Cards { get; set; } = [];
+    [Parameter] public EventCallback<Card> OnCardClick { get; set; }
+    [Parameter] public EventCallback<Card> OnCardLongPress { get; set; }
+    [Parameter] public Func<Card, bool>? HighlightSelected { get; set; }
+    [Parameter] public HashSet<int>? FusionMaterialIds { get; set; }
+    [Parameter] public bool ShowZoom { get; set; } = true;
+    [Parameter] public int  MaxGridCards { get; set; } = 200;
+    [Parameter] public int  LongPressMs  { get; set; } = 3000;
+    [Parameter] public bool StartExpanded { get; set; } = true;
+
+    public enum CardSortMode { Default, AtkDesc, AtkAsc, DefDesc, DefAsc, Type }
+
+    private string _searchTerm = "";
+    private int?   _filterType;
+    private int?   _filterAttribute;
+    private int?   _minAtk, _maxAtk, _minDef, _maxDef;
+    private bool   _onlyFusionMaterials;
+    private CardSortMode _sortMode = CardSortMode.Default;
+    private bool _expanded;
+    private double _zoom = 1.0;
+    private const double ZoomMin = 0.5, ZoomMax = 2.0, ZoomStep = 0.1;
+
+    protected override void OnParametersSet() => _expanded = StartExpanded || _expanded;
+
+    private void ZoomIn()  => _zoom = Math.Min(ZoomMax, Math.Round(_zoom + ZoomStep, 2));
+    private void ZoomOut() => _zoom = Math.Max(ZoomMin, Math.Round(_zoom - ZoomStep, 2));
+
+    private IEnumerable<Card> FilteredCards()
+    {
+        var query = Cards.Where(c => !string.IsNullOrWhiteSpace(c.Name));
+
+        if (!string.IsNullOrEmpty(_searchTerm))
+        {
+            var term = _searchTerm.Trim();
+            query = query.Where(c =>
+                c.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(c.Description) &&
+                 c.Description.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                c.CardId.ToString().Contains(term));
+        }
+
+        if (_minAtk.HasValue) query = query.Where(c => c.Attack  >= _minAtk.Value);
+        if (_maxAtk.HasValue) query = query.Where(c => c.Attack  <= _maxAtk.Value);
+        if (_minDef.HasValue) query = query.Where(c => c.Defense >= _minDef.Value);
+        if (_maxDef.HasValue) query = query.Where(c => c.Defense <= _maxDef.Value);
+        if (_filterType.HasValue)      query = query.Where(c => c.CardType  == _filterType.Value);
+        if (_filterAttribute.HasValue) query = query.Where(c => c.Attribute == _filterAttribute.Value);
+
+        if (_onlyFusionMaterials && FusionMaterialIds is not null)
+            query = query.Where(c => FusionMaterialIds.Contains(c.CardId - 1));
+
+        query = _sortMode switch
+        {
+            CardSortMode.AtkDesc => query.OrderByDescending(c => c.Attack).ThenBy(c => c.Name),
+            CardSortMode.AtkAsc  => query.OrderBy(c => c.Attack).ThenBy(c => c.Name),
+            CardSortMode.DefDesc => query.OrderByDescending(c => c.Defense).ThenBy(c => c.Name),
+            CardSortMode.DefAsc  => query.OrderBy(c => c.Defense).ThenBy(c => c.Name),
+            CardSortMode.Type    => query.OrderBy(c => c.CardType).ThenBy(c => c.Name),
+            _                    => query.OrderBy(c => c.CardId),
+        };
+
+        return query;
+    }
+
+    private int FilteredCardsTotal() => FilteredCards().Count();
+
+    // ── Click vs long-press ────────────────────────────────────────────
+    private CancellationTokenSource? _longPressCts;
+    private bool _longPressFired;
+
+    private void StartLongPress(Card c)
+    {
+        CancelLongPress();
+        _longPressFired = false;
+        var cts = new CancellationTokenSource();
+        _longPressCts = cts;
+        _ = Task.Delay(LongPressMs, cts.Token).ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully && !cts.IsCancellationRequested)
+            {
+                _longPressFired = true;
+                _ = InvokeAsync(async () =>
+                {
+                    if (OnCardLongPress.HasDelegate) await OnCardLongPress.InvokeAsync(c);
+                });
+            }
+        }, TaskScheduler.Default);
+    }
+
+    private void CancelLongPress()
+    {
+        _longPressCts?.Cancel();
+        _longPressCts?.Dispose();
+        _longPressCts = null;
+    }
+
+    private async Task InvokeClick(Card c)
+    {
+        if (_longPressFired) { _longPressFired = false; return; }
+        if (OnCardClick.HasDelegate) await OnCardClick.InvokeAsync(c);
+    }
+}
