@@ -43,6 +43,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<yugiho_tools.Application.Services.ModExtractor>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.LabJsonImporter>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.AnthropicTranslationService>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.UpdateService>();
 
         // LoadRomDataUseCase precisa ser singleton porque o LoadedRomCache
         // (também singleton) injeta dele. UseCase só depende de IRomParser

@@ -6,6 +6,7 @@
 @inject LocalizationService L
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject UpdateService Updates
 @implements IDisposable
 
 <MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
@@ -234,11 +235,36 @@
             </MudPaper>
         </MudItem>
 
+        <!-- ─── Auto-update ───────────────────────────────────────── -->
+        <MudItem xs="12">
+            <MudPaper Class="pa-4" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.SystemUpdate"
+                             Class="mr-1" Size="Size.Small" />
+                    Atualizações
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.CloudDownload"
+                               OnClick="CheckUpdates" Disabled="_checkingUpdates">
+                        @(_checkingUpdates ? "Verificando..." : "Verificar atualizações")
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Style="color:#888;">
+                        Releases publicadas no GitHub. A versão atual é atualizada automaticamente quando há novidades.
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
     </MudGrid>
 
 </MudContainer>
 
 @code {
+    private bool        _checkingUpdates;
     private int         _maxGridCards;
     private string      _shortcutKey = "";
     private bool        _shortcutClearDeck;
@@ -338,5 +364,23 @@
     {
         L.Changed -= OnLocaleChanged;
         _selfRef?.Dispose();
+    }
+
+    private async Task CheckUpdates()
+    {
+        _checkingUpdates = true;
+        try
+        {
+            var result = await Updates.CheckAndApplyAsync();
+            Snackbar.Add(result.Message, result.Updated ? Severity.Success : Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falha ao verificar atualizações: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _checkingUpdates = false;
+        }
     }
 }
