@@ -1,0 +1,159 @@
+@using System.Text.RegularExpressions
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+@inject AppSettings Cfg
+@inject LocalizationService L
+@implements IDisposable
+
+@*
+   Renderiza a descrição da carta interpretando os marcadores que vêm
+     • <_N_>     → ícone do tipo (types/N.bmp)
+     • |N<txt>|  → span colorido (N = índice da paleta de cor)
+   Texto fora dos marcadores é renderizado como texto plano com a cor
+   default (#cfcfe0). Marcadores aninhados não são suportados — não
+   aparecem nas descrições do FM original.
+
+   Quando <see cref="Card"/> é fornecido, lê
+   <c>DescriptionsByLanguage[locale]</c> antes do <c>Text</c> default.
+   Sem tradução cadastrada, cai pro original.
+*@
+
+@{
+    var rendered = ResolveText();
+}
+@if (string.IsNullOrEmpty(rendered))
+{
+    return;
+}
+
+@foreach (var part in Parse(rendered))
+{
+    @switch (part.Kind)
+    {
+        case PartKind.Text:
+            <span>@part.Text</span>
+            break;
+        case PartKind.Color:
+            <span style="@($"color:{ColorFor(part.ColorIndex)}; font-weight:600;")">@part.Text</span>
+            break;
+        case PartKind.Sprite:
+            var url = ExtractedAssets.GetType(part.ColorIndex);
+            if (url is not null)
+            {
+                <img src="@url" alt="@($"type {part.ColorIndex}")"
+                     style="@SpriteStyle" />
+            }
+            else
+            {
+                <span style="color:#888; font-style:italic;">@($"<_{part.ColorIndex}_>")</span>
+            }
+            break;
+    }
+}
+
+@code {
+    /// <summary>Texto bruto a renderizar. Ignorado quando <see cref="Card"/>
+    /// é fornecido E tem tradução pro idioma ativo.</summary>
+    [Parameter] public string? Text { get; set; }
+
+    /// <summary>Carta de origem — habilita lookup automático de
+    /// tradução por idioma via <see cref="Card.DescriptionsByLanguage"/>.</summary>
+    [Parameter] public Card? Card { get; set; }
+
+    /// <summary>
+    /// Resolve o texto a renderizar:
+    ///   1. Se Card e tem tradução pro locale atual, usa a tradução.
+    ///   2. Senão, usa Text (parâmetro explícito) ou Card.Description.
+    /// </summary>
+    private string? ResolveText()
+    {
+        if (Card is not null)
+        {
+            var lang = L.Language;
+            if (Card.DescriptionsByLanguage.TryGetValue(lang, out var t)
+                && !string.IsNullOrWhiteSpace(t))
+                return t;
+            return Card.Description;
+        }
+        return Text;
+    }
+
+    /// <summary>Tamanho do sprite inline — alinhado com a baseline do texto
+    /// adjacente. 16px é o tamanho nativo dos types/guardians no MRG.</summary>
+    private const string SpriteStyle =
+        "width:16px; height:16px; vertical-align:middle; image-rendering:pixelated; " +
+        "margin:0 2px; display:inline-block;";
+
+    private enum PartKind { Text, Color, Sprite }
+
+    private record Part(PartKind Kind, string Text, int ColorIndex);
+
+    /// <summary>Paleta carregada do <see cref="AppSettings"/>. Cache local
+    /// pra evitar disco em cada item renderizado; invalidado via evento
+    /// Changed quando o usuário edita as cores.</summary>
+    private string[] _palette = AppSettings.DefaultDescriptionColors;
+
+    protected override void OnInitialized()
+    {
+        _palette = Cfg.DescriptionColors;
+        Cfg.Changed += OnSettingsChanged;
+        L.Changed   += OnSettingsChanged;
+    }
+
+    public void Dispose()
+    {
+        Cfg.Changed -= OnSettingsChanged;
+        L.Changed   -= OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged()
+    {
+        _palette = Cfg.DescriptionColors;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string ColorFor(int idx) =>
+        idx >= 0 && idx < _palette.Length ? _palette[idx] : _palette[0];
+
+    /// <summary>
+    /// Faz scan single-pass do texto produzindo segmentos. Aceita as duas
+    /// formas: <c>|N&lt;txt&gt;|</c> e <c>&lt;_N_&gt;</c>. Texto que não
+    /// case com nenhum padrão sai como segmento Text para preservar
+    /// quebras de linha e espaçamento.
+    /// </summary>
+    private static IEnumerable<Part> Parse(string s)
+    {
+        // Regex única com alternativa: captura sprite OU bloco colorido.
+        // Grupo "sprite" → índice do type; grupo "color" → idx + texto.
+        var pattern = new Regex(
+            @"_(?<sprite>\d+)_|\|(?<color>\d)(?<ctext>[^|]*)\|",
+            RegexOptions.Compiled);
+
+        int last = 0;
+        foreach (Match m in pattern.Matches(s))
+        {
+            if (m.Index > last)
+                yield return new Part(PartKind.Text, s[last..m.Index], 0);
+
+            if (m.Groups["sprite"].Success)
+            {
+                var textNumber = m.Groups["sprite"].Value;
+                if (textNumber.Length > 2) textNumber = textNumber.Remove(2);
+                int spriteIdx = int.Parse(textNumber);
+                yield return new Part(PartKind.Sprite, "", spriteIdx);
+            }
+            else if (m.Groups["color"].Success)
+            {
+                int colorIdx = int.Parse(m.Groups["color"].Value);
+                string text = m.Groups["ctext"].Value;
+                yield return new Part(PartKind.Color, text, colorIdx);
+            }
+
+            last = m.Index + m.Length;
+        }
+
+        if (last < s.Length)
+            yield return new Part(PartKind.Text, s[last..], 0);
+    }
+}

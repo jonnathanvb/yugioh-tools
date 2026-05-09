@@ -1,0 +1,91 @@
+@page "/cards"
+@using yugiho_tools.Application.DTOs
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.UseCases
+@using yugiho_tools.Components.Shared
+@using yugiho_tools.Domain.Entities
+
+@using Color = MudBlazor.Color
+@using Size  = MudBlazor.Size
+
+@inject yugiho_tools.Application.Services.LoadedRomCache    RomCache
+@inject yugiho_tools.Application.Services.AppSettings       Settings
+@inject yugiho_tools.Application.Services.LocalizationService L
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>@L.T("catalog.title") — Yu-Gi-Oh! FM</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.False" Class="py-6" Style="max-width:80%; margin:0 auto;">
+    <MudText Typo="Typo.h4" Style="color:#c8a415; font-weight:700; letter-spacing:1px;" Class="mb-4">
+        <MudIcon Icon="@Icons.Material.Filled.Style" Class="mr-2" />
+        @L.T("catalog.title")
+    </MudText>
+
+    @if (_cards is { Count: > 0 })
+    {
+        <MudText Typo="Typo.caption" Style="color:#888;" Class="mt-3 d-block">
+            <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Small" />
+            @L.T("catalog.cardsCount", _cards.Count)
+            @if (_romData is { Duelists.Count: > 0 } rd)
+            {
+                <span> · @L.T("catalog.duelistsCount", rd.Duelists.Count)</span>
+            }
+        </MudText>
+
+        <CardCatalog Title="@L.T("catalog.modCards")"
+                     Cards="@_cards"
+                     OnCardClick="OpenDetail"
+                     StartExpanded="true"
+                     MaxGridCards="@Settings.MaxGridCards" />
+    }
+</MudContainer>
+
+@code {
+    // Estado vem TODO do RomCache singleton — nada de re-ler o ROM
+    // ao navegar entre abas. Só observa Changed. A barra de progresso
+    // do load é a global do MainLayout.
+    private IReadOnlyList<Card>? _cards   => RomCache.Current?.Cards;
+    private LoadedRomData?       _romData => RomCache.Current;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CardMetadata.LoadAsync();
+        RomCache.Changed += OnChanged;
+        // Settings também: pra refletir mudança no limite de cartas
+        // do grid sem precisar reabrir a página.
+        Settings.Changed += OnChanged;
+        L.Changed        += OnChanged;
+        // Garantir que o load aconteça caso o usuário entre direto nesta
+        // aba antes do MainLayout completar (corrida de inicialização).
+        await RomCache.EnsureLoadedAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        RomCache.Changed -= OnChanged;
+        Settings.Changed -= OnChanged;
+        L.Changed        -= OnChanged;
+    }
+
+    private async Task OpenDetail(Card card)
+    {
+        var p = new DialogParameters
+        {
+            ["Card"]     = card,
+            ["AllCards"] = _cards,
+            ["RomData"]  = _romData,
+        };
+        var opts = new DialogOptions
+        {
+            CloseButton  = true,
+            MaxWidth     = MaxWidth.Medium,
+            FullWidth    = true,
+            BackdropClick = true,
+        };
+        await DialogService.ShowAsync<CardDetailDialog>(card.Name, p, opts);
+    }
+}

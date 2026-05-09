@@ -1,5 +1,6 @@
 @page "/mods"
 @using yugiho_tools.Application.Services
+@using yugiho_tools.Application.UseCases
 @using yugiho_tools.Domain.Entities
 @using Color = MudBlazor.Color
 @using Size = MudBlazor.Size
@@ -7,8 +8,15 @@
 @inject ListModsUseCase ListModsUseCase
 @inject DeleteModUseCase DeleteModUseCase
 @inject yugiho_tools.Application.Services.ModCatalogService ModCatalog
+@inject yugiho_tools.Application.Services.CurrentModContext ModContext
+@inject yugiho_tools.Application.Services.LocalizationService L
+@inject yugiho_tools.Application.Services.AppSettings Cfg
+@inject yugiho_tools.Application.Services.ModExtractor Extractor
+@inject yugiho_tools.Application.Services.LoadedRomCache RomCache
+@inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@implements IDisposable
 
 <MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
               Style="max-width:80%; margin-left:auto; margin-right:auto;">
@@ -18,9 +26,9 @@
                  Style="color:#c8a415; font-size:2rem;" />
         <div>
             <MudText Typo="Typo.overline"
-                     Style="color:#888; letter-spacing:2px;">CONFIGURAÇÃO</MudText>
+                     Style="color:#888; letter-spacing:2px;">@L.T("mods.subtitle")</MudText>
             <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
-                Gerenciar MODs
+                @L.T("mods.title")
             </MudText>
         </div>
     </div>
@@ -34,7 +42,7 @@
                          Class="mb-3">
                     <MudIcon Icon="@Icons.Material.Filled.AddCircle"
                              Class="mr-1" Size="Size.Small" />
-                    Cadastrar novo MOD
+                    @L.T("mods.registerNew")
                 </MudText>
                 <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
@@ -65,7 +73,7 @@
                                 <MudText Typo="Typo.caption" Style="color:#888;">
                                     @(_newGamePath != null
                                         ? Path.GetFileName(_newGamePath)
-                                        : "Selecionar arquivo SLUS")
+                                        : L.T("mods.pickSlus"))
                                 </MudText>
                             </div>
                             @if (_newGamePath != null)
@@ -89,7 +97,7 @@
                                 <MudText Typo="Typo.caption" Style="color:#888;">
                                     @(_newMrgPath != null
                                         ? Path.GetFileName(_newMrgPath)
-                                        : "Selecionar arquivo MRG")
+                                        : L.T("mods.pickMrg"))
                                 </MudText>
                             </div>
                             @if (_newMrgPath != null)
@@ -101,6 +109,101 @@
                     </MudPaper>
                 </div>
 
+                @* Input opcional: JSON pré-extraído (ex: ygopro-lab data.pro
+                   descompactado). Se fornecido, sobrescreve nossa leitura
+                   binária dos dados (cartas, duelistas, drops). Imagens
+                   continuam vindo do MRG. *@
+                <div class="@FileZoneClass(_newJsonPath)" @onclick="PickJsonFile" style="margin-top:8px;">
+                    <MudPaper Class="pa-3" Elevation="0" Style="background:transparent;">
+                        <div class="d-flex align-center gap-2">
+                            <MudIcon Icon="@Icons.Material.Filled.DataObject"
+                                     Style="@FileIconStyle(_newJsonPath)" />
+                            <div style="flex:1;">
+                                <MudText Typo="Typo.body2" Style="color:#c8a415; font-weight:700;">
+                                    @L.T("mods.jsonOptional")
+                                </MudText>
+                                <MudText Typo="Typo.caption" Style="color:#888;">
+                                    @(_newJsonPath != null
+                                        ? Path.GetFileName(_newJsonPath)
+                                        : L.T("mods.pickJson"))
+                                </MudText>
+                            </div>
+                            @if (_newJsonPath != null)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                         Color="Color.Success" />
+                            }
+                        </div>
+                    </MudPaper>
+                </div>
+
+                @* Fonte da Description: ROM (binário) ou JSON do lab.
+                   Cada mod fica diferente — alguns o JSON tem texto rico
+                   com marcadores, outros tem placeholders crus que nosso
+                   decoder não interpreta. Usuário escolhe na hora do
+                   cadastro qual fonte é melhor pro mod dele. *@
+                <div class="mt-3" style="padding:8px 10px; background:#15152e; border-radius:6px;
+                                         border:1px solid #2a2a6e;">
+                    <MudText Typo="Typo.caption" Style="color:#888; letter-spacing:1px;" Class="mb-1">
+                        @L.T("mods.descSource")
+                    </MudText>
+                    <MudToggleGroup T="ModExtractor.DescriptionSource"
+                                    SelectionMode="SelectionMode.SingleSelection"
+                                    Value="@_descriptionSource"
+                                    ValueChanged="@(v => _descriptionSource = v)"
+                                    Color="Color.Secondary"
+                                    Dense="true"
+                                    CheckMark="false">
+                        <MudToggleItem Value="ModExtractor.DescriptionSource.Rom">
+                            <div class="d-flex align-center gap-1">
+                                <MudIcon Icon="@Icons.Material.Filled.Memory" Size="Size.Small" />
+                                @L.T("mods.descSource.rom")
+                            </div>
+                        </MudToggleItem>
+                        <MudToggleItem Value="ModExtractor.DescriptionSource.Json">
+                            <div class="d-flex align-center gap-1">
+                                <MudIcon Icon="@Icons.Material.Filled.DataObject" Size="Size.Small" />
+                                @L.T("mods.descSource.json")
+                            </div>
+                        </MudToggleItem>
+                    </MudToggleGroup>
+                    <MudText Typo="Typo.caption" Style="color:#888; display:block;" Class="mt-1">
+                        @L.T("mods.descSourceHelp")
+                    </MudText>
+                </div>
+
+                @* Flag pra mods com duelista extra (ex.: Rakuza no TLM).
+                   Quando marcada, o extrator usa offset deslocado e lê 40
+                   portraits — Rakuza vira o índice 0 e os demais empurram
+                   pra +1, batendo com o comportamento *@
+                <div class="mt-3" style="padding:8px 10px; background:#15152e; border-radius:6px;
+                                         border:1px solid #2a2a6e;">
+                    <MudCheckBox T="bool"
+                                 Value="_hasExtraDuelist"
+                                 ValueChanged="@(v => _hasExtraDuelist = v)"
+                                 Color="Color.Primary"
+                                 Dense="true">
+                        <MudText Typo="Typo.body2" Style="color:#cfcfe0;">
+                            @L.T("mods.extraDuelist")
+                        </MudText>
+                    </MudCheckBox>
+                    <MudText Typo="Typo.caption" Style="color:#888; padding-left:32px; display:block;">
+                        @L.T("mods.extraDuelistHelp")
+                    </MudText>
+                </div>
+
+                <div class="d-flex align-center mt-1" style="padding-left:4px;">
+                    <MudIcon Icon="@Icons.Material.Filled.Download"
+                             Size="Size.Small" Style="color:#888; font-size:0.9rem;" Class="mr-1" />
+                    <MudLink Href="template-mod-data.json"
+                             Target="_blank"
+                             Download="template-mod-data.json"
+                             Typo="Typo.caption"
+                             Style="color:#c8a415;">
+                        @L.T("mods.downloadTemplate")
+                    </MudLink>
+                </div>
+
                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                            FullWidth="true" Size="Size.Large"
                            StartIcon="@Icons.Material.Filled.Save"
@@ -108,20 +211,197 @@
                            Disabled="@(!CanSave || _isSaving)"
                            Class="mt-4"
                            Style="font-weight:700; letter-spacing:1px;">
-                    @(_isSaving ? "SALVANDO..." : "CADASTRAR MOD")
+                    @(_isSaving ? L.T("mods.saving") : L.T("mods.registerButton"))
                 </MudButton>
             </MudPaper>
         </MudItem>
 
-        <!-- ─── Lista ───────────────────────────────────────────── -->
+        @* ── Tradução (provider + endpoints) ──────────────────────
+           Movido pra cá pra que a config fique perto do botão
+           "Translate" de cada MOD. Settings só cuida das prefs gerais
+           do app agora. *@
         <MudItem xs="12" md="7">
+            <MudPaper Class="pa-4 mb-3" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Translate"
+                             Class="mr-1" Size="Size.Small" />
+                    @L.T("settings.claude.title")
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-3 d-block">
+                    @L.T("settings.claude.desc")
+                </MudText>
+
+                @* Toggle de provider único — só uma integração ativa
+                   por vez. Os campos abaixo se adaptam ao escolhido. *@
+                <MudToggleGroup T="string"
+                                SelectionMode="SelectionMode.SingleSelection"
+                                Value="@_translationProvider"
+                                ValueChanged="@OnProviderChanged"
+                                Color="Color.Secondary"
+                                CheckMark="false"
+                                Class="mb-3">
+                    <MudToggleItem Value="@("claude")">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" />
+                            @L.T("settings.translation.providerClaude")
+                        </div>
+                    </MudToggleItem>
+                    <MudToggleItem Value="@("deepl")">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.Translate" Size="Size.Small" />
+                            DeepL
+                        </div>
+                    </MudToggleItem>
+                    <MudToggleItem Value="@("ollama")">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.Computer" Size="Size.Small" />
+                            @L.T("settings.translation.providerOllama")
+                        </div>
+                    </MudToggleItem>
+                    <MudToggleItem Value="@("lmstudio")">
+                        <div class="d-flex align-center gap-1">
+                            <MudIcon Icon="@Icons.Material.Filled.Memory" Size="Size.Small" />
+                            LM Studio
+                        </div>
+                    </MudToggleItem>
+                </MudToggleGroup>
+
+                @if (_translationProvider == "claude")
+                {
+                    <MudGrid Spacing="2" Class="mb-3">
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string"
+                                          Value="@_claudeApiKey"
+                                          ValueChanged="@OnClaudeApiKeyChanged"
+                                          Label="@L.T("settings.claude.apiKey")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          InputType="InputType.Password"
+                                          HelperText="@L.T("settings.claude.apiKeyHelp")" />
+                        </MudItem>
+                        <MudItem xs="12" md="3">
+                            <MudTextField T="string"
+                                          Value="@_claudeModel"
+                                          ValueChanged="@OnClaudeModelChanged"
+                                          Label="@L.T("settings.claude.model")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" md="3">
+                            <MudTextField T="string"
+                                          Value="@_claudeBaseUrl"
+                                          ValueChanged="@OnClaudeBaseUrlChanged"
+                                          Label="@L.T("settings.claude.baseUrl")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" />
+                        </MudItem>
+                    </MudGrid>
+                }
+                else if (_translationProvider == "deepl")
+                {
+                    <MudGrid Spacing="2" Class="mb-3">
+                        <MudItem xs="12" md="8">
+                            <MudTextField T="string"
+                                          Value="@_deepLApiKey"
+                                          ValueChanged="@OnDeepLApiKeyChanged"
+                                          Label="@L.T("settings.deepl.apiKey")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          InputType="InputType.Password"
+                                          HelperText="@L.T("settings.deepl.apiKeyHelp")" />
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudSelect T="string"
+                                       Value="@_deepLPlan"
+                                       ValueChanged="@OnDeepLPlanChanged"
+                                       Label="@L.T("settings.deepl.plan")"
+                                       Variant="Variant.Outlined"
+                                       Margin="Margin.Dense">
+                                <MudSelectItem Value="@("free")">Free (api-free.deepl.com)</MudSelectItem>
+                                <MudSelectItem Value="@("pro")">Pro (api.deepl.com)</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                    </MudGrid>
+                }
+                else if (_translationProvider == "ollama")
+                {
+                    <MudGrid Spacing="2" Class="mb-3">
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string"
+                                          Value="@_ollamaBaseUrl"
+                                          ValueChanged="@OnOllamaBaseUrlChanged"
+                                          Label="@L.T("settings.ollama.baseUrl")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          HelperText="@L.T("settings.ollama.baseUrlHelp")" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string"
+                                          Value="@_ollamaModel"
+                                          ValueChanged="@OnOllamaModelChanged"
+                                          Label="@L.T("settings.ollama.model")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          HelperText="@L.T("settings.ollama.modelHelp")" />
+                        </MudItem>
+                    </MudGrid>
+                }
+                else if (_translationProvider == "lmstudio")
+                {
+                    <MudGrid Spacing="2" Class="mb-3">
+                        <MudItem xs="12" md="5">
+                            <MudTextField T="string"
+                                          Value="@_lmStudioBaseUrl"
+                                          ValueChanged="@OnLmStudioBaseUrlChanged"
+                                          Label="@L.T("settings.lmstudio.baseUrl")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          HelperText="@L.T("settings.lmstudio.baseUrlHelp")" />
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudTextField T="string"
+                                          Value="@_lmStudioModel"
+                                          ValueChanged="@OnLmStudioModelChanged"
+                                          Label="@L.T("settings.lmstudio.model")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          HelperText="@L.T("settings.lmstudio.modelHelp")" />
+                        </MudItem>
+                        <MudItem xs="12" md="3">
+                            <MudTextField T="string"
+                                          Value="@_lmStudioApiKey"
+                                          ValueChanged="@OnLmStudioApiKeyChanged"
+                                          Label="@L.T("settings.lmstudio.apiKey")"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          InputType="InputType.Password"
+                                          HelperText="@L.T("settings.lmstudio.apiKeyHelp")" />
+                        </MudItem>
+                    </MudGrid>
+                }
+
+                <MudCheckBox T="bool"
+                             Value="@_autoTranslate"
+                             ValueChanged="@OnAutoTranslateChanged"
+                             Color="Color.Primary"
+                             Label="@L.T("settings.claude.autoTranslate")"
+                             Class="mt-2" />
+            </MudPaper>
+        </MudItem>
+
+        <!-- ─── Lista ───────────────────────────────────────────── -->
+        <MudItem xs="12" >
             <MudPaper Class="pa-4" Elevation="3"
                       Style="background:#141428; border:1px solid #2a2a6e;">
                 <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
                          Class="mb-3">
                     <MudIcon Icon="@Icons.Material.Filled.Inventory"
                              Class="mr-1" Size="Size.Small" />
-                    MODs cadastrados (@_mods.Count)
+                    @L.T("mods.registered", _mods.Count)
                 </MudText>
                 <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
@@ -129,7 +409,7 @@
                 {
                     <MudAlert Severity="Severity.Info"
                               Style="background:#0d1520; border:1px solid #2a5a8e;">
-                        Nenhum MOD cadastrado ainda. Use o formulário ao lado.
+                        @L.T("mods.empty")
                     </MudAlert>
                 }
                 else
@@ -137,35 +417,87 @@
                     <MudList T="Mod" Dense="true">
                         @foreach (var mod in _mods)
                         {
-                            <MudListItem T="Mod" Style="background:#0a0a18; border:1px solid #1e1e4a;
-                                                        border-radius:6px; margin-bottom:8px;">
+                            var modRef = mod;
+                            var isActive = ModContext.CurrentSlug == modRef.Slug;
+                            <MudListItem T="Mod"
+                                         Style="@($"background:{(isActive ? "#15301a" : "#0a0a18")};" +
+                                                 $" border:1px solid {(isActive ? "#4caf50" : "#1e1e4a")};" +
+                                                 " border-radius:6px; margin-bottom:8px;")">
                                 <div class="d-flex align-center justify-space-between gap-2">
                                     <div style="flex:1;">
-                                        <MudText Style="font-weight:700; color:#c8a415;">
-                                            @mod.Name
-                                        </MudText>
+                                        <div class="d-flex align-center gap-2">
+                                            <MudText Style="font-weight:700; color:#c8a415;">
+                                                @modRef.Name
+                                            </MudText>
+                                            @if (isActive)
+                                            {
+                                                <MudChip T="string" Size="Size.Small"
+                                                         Color="Color.Success" Variant="Variant.Filled"
+                                                         Icon="@Icons.Material.Filled.CheckCircle">
+                                                    @L.T("mods.active")
+                                                </MudChip>
+                                            }
+                                        </div>
                                         <MudText Typo="Typo.caption" Style="color:#888;">
-                                            <code>MOD/@mod.Slug</code> ·
-                                            @mod.GameFileName · @mod.MrgFileName ·
-                                            @mod.CreatedAt.ToString("yyyy-MM-dd HH:mm")
+                                            <code>MOD/@modRef.Slug</code> ·
+                                            @modRef.GameFileName · @modRef.MrgFileName ·
+                                            @modRef.CreatedAt.ToString("yyyy-MM-dd HH:mm")
                                         </MudText>
-                                        @if (!string.IsNullOrEmpty(mod.ImageUrlTemplate))
-                                        {
-                                            <MudText Typo="Typo.caption" Style="color:#666;">
-                                                🖼 <code>@mod.ImageUrlTemplate</code>
-                                            </MudText>
-                                        }
-                                        else
-                                        {
-                                            <MudText Typo="Typo.caption" Style="color:#f44336;">
-                                                ⚠ Sem URL de imagens — re-cadastre para usar.
-                                            </MudText>
-                                        }
+                          
                                     </div>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                   Color="Color.Error" Size="Size.Small"
-                                                   OnClick="() => DeleteMod(mod)" />
+                                    <div class="d-flex align-center gap-1">
+                                        @* Extração agora é automática no cadastro — não tem
+                                           mais botão "extrair" aqui. Pra re-processar, o
+                                           usuário precisa apagar e cadastrar de novo. *@
+                                        @{
+                                            var translatingThis = _translatingSlug == modRef.Slug;
+                                            var canTranslate    = Cfg.TranslationConfigured
+                                                                  && _translatingSlug == null;
+                                        }
+                                        <MudButton Size="Size.Small"
+                                                   Variant="Variant.Outlined"
+                                                   Color="@(translatingThis ? Color.Warning : Color.Primary)"
+                                                   StartIcon="@(translatingThis
+                                                       ? Icons.Material.Filled.HourglassEmpty
+                                                       : Icons.Material.Filled.Translate)"
+                                                   OnClick="@(() => TranslateMod(modRef))"
+                                                   Disabled="@(!canTranslate && !translatingThis)">
+                                            @(translatingThis
+                                                ? L.T("mods.translateInProgress")
+                                                : L.T("mods.translate"))
+                                        </MudButton>
+                                        @if (translatingThis)
+                                        {
+                                            <MudIconButton Icon="@Icons.Material.Filled.Cancel"
+                                                           Color="Color.Error" Size="Size.Small"
+                                                           OnClick="CancelTranslation"
+                                                           title="@L.T("common.cancel")" />
+                                        }
+                                        @if (!isActive)
+                                        {
+                                            <MudButton Size="Size.Small"
+                                                       Variant="Variant.Outlined" Color="Color.Success"
+                                                       StartIcon="@Icons.Material.Filled.CheckCircle"
+                                                       OnClick="@(() => SetActive(modRef))">
+                                                @L.T("mods.setActive")
+                                            </MudButton>
+                                        }
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                       Color="Color.Error" Size="Size.Small"
+                                                       OnClick="@(() => DeleteMod(modRef))"
+                                                       Disabled="@(_translatingSlug != null)" />
+                                    </div>
                                 </div>
+                                @if (translatingThis && !string.IsNullOrEmpty(_translatingProgress))
+                                {
+                                    <div class="mt-2">
+                                        <MudProgressLinear Indeterminate="true" Color="Color.Primary"
+                                                           Rounded="true" Size="Size.Small" />
+                                        <MudText Typo="Typo.caption" Style="color:#888;" Class="mt-1 d-block">
+                                            @_translatingProgress
+                                        </MudText>
+                                    </div>
+                                }
                             </MudListItem>
                         }
                     </MudList>
@@ -179,10 +511,35 @@
 @code {
     private string? _newGamePath;
     private string? _newMrgPath;
+    private string? _newJsonPath;
+    private bool    _hasExtraDuelist;
+    private ModExtractor.DescriptionSource _descriptionSource = ModExtractor.DescriptionSource.Rom;
     private ModCatalogEntry? _selectedCatalog;
     private bool    _isSaving;
     private List<Mod> _mods = [];
     private List<ModCatalogEntry> _catalog = [];
+
+    // ── Tradução ─────────────────────────────────────────────────
+    private string _translationProvider = AppSettings.DefaultTranslationProvider;
+    private string _claudeApiKey    = "";
+    private string _claudeModel     = AppSettings.DefaultClaudeModel;
+    private string _claudeBaseUrl   = AppSettings.DefaultClaudeBaseUrl;
+    private string _ollamaBaseUrl   = AppSettings.DefaultOllamaBaseUrl;
+    private string _ollamaModel     = AppSettings.DefaultOllamaModel;
+    private string _lmStudioBaseUrl = AppSettings.DefaultLmStudioBaseUrl;
+    private string _lmStudioModel   = AppSettings.DefaultLmStudioModel;
+    private string _lmStudioApiKey  = "";
+    private string _deepLApiKey     = "";
+    private string _deepLPlan       = AppSettings.DefaultDeepLPlan;
+    private bool   _autoTranslate;
+
+    /// <summary>Slug do MOD que está sendo traduzido AGORA. Null = nada
+    /// rodando, então qualquer linha pode iniciar. Travamos um único
+    /// MOD por vez pra não brigar pelos endpoints do Ollama nem
+    /// estourar rate-limit do Claude.</summary>
+    private string? _translatingSlug;
+    private string  _translatingProgress = "";
+    private CancellationTokenSource? _translateCts;
 
     private bool CanSave =>
         _selectedCatalog != null &&
@@ -191,8 +548,8 @@
 
     private string HelperCatalogText =>
         _selectedCatalog is null
-            ? "Comece a digitar para filtrar os mods disponíveis."
-            : "MOD selecionado.";
+            ? L.T("mods.searchHelp")
+            : L.T("mods.selected");
 
     private string PreviewUrl =>
         _selectedCatalog is null
@@ -208,6 +565,140 @@
     {
         _catalog = (await ModCatalog.GetAllAsync()).ToList();
         await Reload();
+        // Carrega config de tradução do AppSettings.
+        _translationProvider = Cfg.TranslationProvider;
+        _claudeApiKey    = Cfg.ClaudeApiKey;
+        _claudeModel     = Cfg.ClaudeModel;
+        _claudeBaseUrl   = Cfg.ClaudeBaseUrl;
+        _ollamaBaseUrl   = Cfg.OllamaBaseUrl;
+        _ollamaModel     = Cfg.OllamaModel;
+        _lmStudioBaseUrl = Cfg.LmStudioBaseUrl;
+        _lmStudioModel   = Cfg.LmStudioModel;
+        _lmStudioApiKey  = Cfg.LmStudioApiKey;
+        _deepLApiKey     = Cfg.DeepLApiKey;
+        _deepLPlan       = Cfg.DeepLPlan;
+        _autoTranslate   = Cfg.AutoTranslateOnExtract;
+        ModContext.Changed += OnModContextChanged;
+        L.Changed          += OnLocaleChanged;
+    }
+
+    // ── Translation config handlers ─────────────────────────────────
+    private void OnProviderChanged(string v)        { _translationProvider = v ?? AppSettings.DefaultTranslationProvider; Cfg.TranslationProvider = _translationProvider; }
+    private void OnClaudeApiKeyChanged(string v)    { _claudeApiKey = v ?? ""; Cfg.ClaudeApiKey = _claudeApiKey; }
+    private void OnClaudeModelChanged(string v)     { _claudeModel = v ?? AppSettings.DefaultClaudeModel; Cfg.ClaudeModel = _claudeModel; }
+    private void OnClaudeBaseUrlChanged(string v)   { _claudeBaseUrl = v ?? AppSettings.DefaultClaudeBaseUrl; Cfg.ClaudeBaseUrl = _claudeBaseUrl; }
+    private void OnOllamaBaseUrlChanged(string v)   { _ollamaBaseUrl = v ?? AppSettings.DefaultOllamaBaseUrl; Cfg.OllamaBaseUrl = _ollamaBaseUrl; }
+    private void OnOllamaModelChanged(string v)     { _ollamaModel = v ?? AppSettings.DefaultOllamaModel; Cfg.OllamaModel = _ollamaModel; }
+    private void OnLmStudioBaseUrlChanged(string v) { _lmStudioBaseUrl = v ?? AppSettings.DefaultLmStudioBaseUrl; Cfg.LmStudioBaseUrl = _lmStudioBaseUrl; }
+    private void OnLmStudioModelChanged(string v)   { _lmStudioModel = v ?? ""; Cfg.LmStudioModel = _lmStudioModel; }
+    private void OnLmStudioApiKeyChanged(string v)  { _lmStudioApiKey = v ?? ""; Cfg.LmStudioApiKey = _lmStudioApiKey; }
+    private void OnDeepLApiKeyChanged(string v)     { _deepLApiKey = v ?? ""; Cfg.DeepLApiKey = _deepLApiKey; }
+    private void OnDeepLPlanChanged(string v)       { _deepLPlan = v ?? AppSettings.DefaultDeepLPlan; Cfg.DeepLPlan = _deepLPlan; }
+    private void OnAutoTranslateChanged(bool v)     { _autoTranslate = v; Cfg.AutoTranslateOnExtract = v; }
+
+    /// <summary>Traduz UM MOD específico (clique no botão da linha).
+    /// Trava global via <see cref="_translatingSlug"/> — enquanto não
+    /// for null, os outros botões ficam desabilitados. Recarrega o
+    /// RomCache quando termina pra a UI refletir as traduções.</summary>
+    private async Task TranslateMod(Mod mod)
+    {
+        if (!Cfg.TranslationConfigured)
+        {
+            Snackbar.Add(L.T("settings.claude.notConfigured"), Severity.Warning);
+            return;
+        }
+        if (_translatingSlug != null) return;  // outro mod já em curso
+
+        _translatingSlug     = mod.Slug;
+        _translatingProgress = "";
+        _translateCts        = new CancellationTokenSource();
+        var ct = _translateCts.Token;
+
+        var errors = new List<string>();
+        var stepProgress = new Progress<ModExtractor.ExtractionStep>(s =>
+        {
+            if (s.Message.Contains("falhou", StringComparison.OrdinalIgnoreCase))
+                errors.Add(s.Message);
+            else
+            {
+                _translatingProgress = s.Message;
+                InvokeAsync(StateHasChanged);
+            }
+        });
+
+        try
+        {
+            await Extractor.TranslateModAsync(mod, stepProgress, ct);
+            // Se o MOD traduzido for o ativo, recarrega o cache pra
+            // que CardDetailDialog reflita as traduções imediatamente.
+            if (ModContext.CurrentSlug == mod.Slug)
+                await RomCache.ReloadAsync();
+
+            foreach (var e in errors.Take(3)) Snackbar.Add(e, Severity.Warning);
+            Snackbar.Add(L.T("settings.claude.translateDone"), Severity.Success);
+        }
+        catch (OperationCanceledException)
+        {
+            Snackbar.Add(L.T("common.cancel"), Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"{mod.Name}: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _translateCts?.Dispose();
+            _translateCts        = null;
+            _translatingSlug     = null;
+            _translatingProgress = "";
+        }
+    }
+
+    private void CancelTranslation() => _translateCts?.Cancel();
+
+    private void OnModContextChanged() => InvokeAsync(StateHasChanged);
+    private void OnLocaleChanged()     => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        ModContext.Changed -= OnModContextChanged;
+        L.Changed          -= OnLocaleChanged;
+    }
+
+    private void SetActive(Mod mod)
+    {
+        ModContext.Set(mod);
+        Snackbar.Add(L.T("mods.activated", mod.Name), Severity.Success);
+    }
+
+    /// <summary>
+    /// Abre o popup de extração e espera o usuário fechar. Roda em
+    /// thread de UI; o ModExtractor internamente usa Task.Run pro
+    /// trabalho pesado, então a UI continua responsiva.
+    /// </summary>
+    private async Task OpenExtractionDialog(Mod mod, string? jsonPath = null,
+                                            bool hasExtraDuelist = false,
+                                            ModExtractor.DescriptionSource descSource = ModExtractor.DescriptionSource.Rom)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Mod"] = mod,
+            ["JsonPath"] = jsonPath,
+            ["HasExtraDuelist"] = hasExtraDuelist,
+            ["DescriptionSource"] = descSource,
+        };
+        var options = new DialogOptions
+        {
+            CloseButton  = false,
+            BackdropClick = false,
+            CloseOnEscapeKey = false,
+            MaxWidth = MaxWidth.Small, FullWidth = true,
+        };
+        var dlg = await DialogService.ShowAsync<ModExtractionDialog>(
+            "Extraindo MOD", parameters, options);
+        await dlg.Result;
+        // Re-renderiza pra atualizar o ícone (Warning → Success).
+        StateHasChanged();
     }
 
     private void OnCatalogChanged(ModCatalogEntry? entry) => _selectedCatalog = entry;
@@ -249,7 +740,7 @@
         var r = await MainThread.InvokeOnMainThreadAsync(() =>
             FilePicker.Default.PickAsync(new PickOptions
             {
-                PickerTitle = "Selecionar SLUS_014.11",
+                PickerTitle = L.T("mods.pickerSlus"),
                 FileTypes   = fileType,
             }));
         if (r != null) _newGamePath = r.FullPath;
@@ -264,10 +755,25 @@
         var r = await MainThread.InvokeOnMainThreadAsync(() =>
             FilePicker.Default.PickAsync(new PickOptions
             {
-                PickerTitle = "Selecionar WA_MRG.MRG",
+                PickerTitle = L.T("mods.pickerMrg"),
                 FileTypes   = fileType,
             }));
         if (r != null) _newMrgPath = r.FullPath;
+    }
+
+    private async Task PickJsonFile()
+    {
+        var fileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+        {
+            { DevicePlatform.WinUI, new[] { ".json" } },
+        });
+        var r = await MainThread.InvokeOnMainThreadAsync(() =>
+            FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = L.T("mods.pickerJson"),
+                FileTypes   = fileType,
+            }));
+        if (r != null) _newJsonPath = r.FullPath;
     }
 
     private async Task SaveMod()
@@ -279,16 +785,30 @@
             var template = ModCatalogService.BuildImageUrlTemplate(_selectedCatalog!);
             var mod = await RegisterModUseCase.ExecuteAsync(
                 _selectedCatalog!.Name, _newGamePath!, _newMrgPath!, template);
-            Snackbar.Add($"MOD '{mod.Name}' cadastrado em MOD/{mod.Slug}.", Severity.Success);
+            Snackbar.Add(L.T("mods.registered.success", mod.Name, mod.Slug), Severity.Success);
 
+            var jsonPath = _newJsonPath;
+            var hasExtra = _hasExtraDuelist;
+            var descSource = _descriptionSource;
             _newGamePath = null;
             _newMrgPath = null;
+            _newJsonPath = null;
+            _hasExtraDuelist = false;
+            _descriptionSource = ModExtractor.DescriptionSource.Rom;
             _selectedCatalog = null;
             await Reload();
+
+            // Dispara extração automática logo após o cadastro — usuário
+            // espera UMA vez e depois leituras são instantâneas via JSON.
+            await OpenExtractionDialog(mod, jsonPath, hasExtra, descSource);
+
+            // Se é o primeiro MOD, ativa automaticamente — usuário não
+            // precisa clicar em "Definir como ativo" pra começar a usar.
+            if (_mods.Count == 1) SetActive(mod);
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Erro ao cadastrar MOD: {ex.Message}", Severity.Error);
+            Snackbar.Add(L.T("mods.registerError", ex.Message), Severity.Error);
         }
         finally
         {
@@ -299,15 +819,17 @@
     private async Task DeleteMod(Mod mod)
     {
         var confirm = await DialogService.ShowMessageBox(
-            "Confirmar remoção",
-            $"Remover o MOD '{mod.Name}' e todos os seus arquivos?",
-            yesText: "Remover", cancelText: "Cancelar");
+            L.T("mods.deleteTitle"),
+            L.T("mods.deleteConfirm", mod.Name),
+            yesText: L.T("common.remove"), cancelText: L.T("common.cancel"));
         if (confirm != true) return;
 
         try
         {
             await DeleteModUseCase.ExecuteAsync(mod.Slug);
-            Snackbar.Add($"MOD '{mod.Name}' removido.", Severity.Info);
+            // Se removeu o ativo, limpa o contexto.
+            if (ModContext.CurrentSlug == mod.Slug) ModContext.Set(null);
+            Snackbar.Add(L.T("mods.deleted", mod.Name), Severity.Info);
             await Reload();
         }
         catch (Exception ex)

@@ -1,24 +1,52 @@
+@using yugiho_tools.Application.DTOs
 @using yugiho_tools.Application.Helpers
 @using yugiho_tools.Application.Services
+@using yugiho_tools.Application.UseCases
 @using yugiho_tools.Domain.Entities
 @inject CurrentModContext ModContext
+@inject AppSettings Cfg
+@inject yugiho_tools.Application.Services.LocalizationService L
+@implements IDisposable
 
-<MudDialog Style="background:#0d0d1a;">
+<MudDialog Class="card-detail-dialog" Style="background:#0d0d1a;">
+    <TitleContent>
+        <div class="d-flex align-center gap-2 flex-wrap">
+            @if (_history.Count > 0)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                               Size="Size.Small"
+                               OnClick="GoBack"
+                               Title="@L.T("detail.back.title")" />
+                <MudText Typo="Typo.caption" Style="color:#666;">
+                    @($"({_history.Count})")
+                </MudText>
+            }
+            <MudText Typo="Typo.h6" Style="color:#c8a415; font-weight:700;">@Card.Name</MudText>
+            @if (_history.Count > 0)
+            {
+                <MudText Typo="Typo.caption" Style="color:#666; flex-basis:100%;"
+                         title="@string.Join(" → ", _history.Reverse().Select(c => c.Name).Append(Card.Name))">
+                    ← @string.Join(" ← ", _history.Take(3).Select(c => c.Name))
+                    @(_history.Count > 3 ? $" ← (+{_history.Count - 3})" : "")
+                </MudText>
+            }
+        </div>
+    </TitleContent>
     <DialogContent>
+        @* @key força remount completo de TODA a árvore (detalhes, drops,
+           fusões, rituais) quando a carta muda. Sem isso, sub-componentes
+           (CardCover, CardDescriptionText, CategoryIconLabel, MudChip de
+           Limit) podem reusar instâncias e mostrar dados da carta
+           anterior. *@
+        <div @key="@Card.CardId">
         <div class="d-flex gap-4 flex-wrap" style="min-width:300px;">
             <div>
-                <img src="@CardImage.Url(ModContext.ImageUrlTemplate, Card.CardId)" alt="@Card.Name"
-                     style="width:271px; max-width:90vw;
-                            aspect-ratio:271/386; object-fit:contain;
-                            border-radius:6px; border:1px solid #2a2a6e;" />
+                <CardCover Card="@Card" WidthPx="271"
+                           ExtraStyle="border:1px solid #2a2a6e; max-width:90vw;" />
             </div>
             <div style="flex:1; min-width:280px;">
-                <MudText Typo="Typo.caption" Style="color:#888;">
-                    #@Card.CardId
-                </MudText>
-                <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
-                    @Card.Name
-                </MudText>
+                <MudText Typo="Typo.caption" Style="color:#888;">#@Card.CardId</MudText>
+                <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">@Card.Name</MudText>
 
                 <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
 
@@ -31,40 +59,506 @@
                         <tr><td style="@LabelStyle">Level</td>
                             <td>@StarString(Card.Level) (@Card.Level)</td></tr>
                         <tr><td style="@LabelStyle">Type</td>
-                            <td>@CardMetadata.TypeName(Card.CardType) (@Card.CardType)</td></tr>
+                            <td>
+                                <CategoryIconLabel Kind="CategoryIconLabel.CategoryKind.Type"
+                                                   Id="@Card.CardType" />
+                                <span style="color:#888;"> (@Card.CardType)</span>
+                            </td></tr>
                         <tr><td style="@LabelStyle">Attribute</td>
-                            <td>@CardMetadata.AttributeName(Card.Attribute) (@Card.Attribute)</td></tr>
+                            <td>
+                                <CategoryIconLabel Kind="CategoryIconLabel.CategoryKind.Attribute"
+                                                   Id="@Card.Attribute" />
+                                <span style="color:#888;"> (@Card.Attribute)</span>
+                            </td></tr>
                         <tr><td style="@LabelStyle">Guardian Stars</td>
                             <td>@Card.GuardianStarNames[Math.Clamp(Card.GuardianStar1, 0, Card.GuardianStarNames.Length - 1)] /
                                 @Card.GuardianStarNames[Math.Clamp(Card.GuardianStar2, 0, Card.GuardianStarNames.Length - 1)]</td></tr>
-                        <tr><td style="@LabelStyle">Fusões registradas</td>
-                            <td>@Card.FusionCount</td></tr>
+                        <tr><td style="@LabelStyle">Registered Fusions</td>
+                            <td>@Card.FusionResults.Count</td></tr>
+                        @if (Card.Limited > 0)
+                        {
+                            <tr><td style="@LabelStyle">Limit</td>
+                                <td>
+                                    <MudChip T="string" Size="Size.Small"
+                                             Color="@LimitedChipColor(Card.Limited)"
+                                             Variant="Variant.Filled">
+                                        @LimitedLabel(Card.Limited)
+                                    </MudChip>
+                                </td></tr>
+                        }
+                        @if (!string.IsNullOrEmpty(Card.Password))
+                        {
+                            <tr><td style="@LabelStyle">Password</td>
+                                <td><code style="color:#cfcfe0;">@Card.Password</code></td></tr>
+                        }
+                        @if (Card.CostStars > 0)
+                        {
+                            <tr><td style="@LabelStyle">Cost</td>
+                                <td>
+                                    <span style="color:#c8a415; font-weight:700;">@Card.CostStars</span>
+                                    <span style="color:#888;"> Star Chips</span>
+                                </td></tr>
+                        }
                     </tbody>
                 </table>
 
                 @if (!string.IsNullOrWhiteSpace(Card.Description))
                 {
                     <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
-                    <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
-                        Descrição
-                    </MudText>
-                    <MudText Typo="Typo.body2"
-                             Style="color:#cfcfe0; white-space:pre-wrap;">
-                        @Card.Description
-                    </MudText>
+                    <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">Description</MudText>
+                    <div style="color:#cfcfe0; white-space:pre-wrap; font-size:14px;
+                                line-height:1.5;">
+                        <CardDescriptionText Card="@Card" />
+                    </div>
                 }
             </div>
         </div>
+
+        @* ── Drops ──────────────────────────────────────────────────────── *@
+        @if (RomData is not null)
+        {
+            var drops = RomData.GetDrops(Card.CardId - 1)
+                              .OrderByDescending(d => d.Weight)
+                              .ToList();
+            if (drops.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                    @L.T("detail.dropsTitle", drops.Count)
+                </MudText>
+                <table class="mt-2"
+                       style="width:100%; color:#e0e0e0; font-size:13px; border-collapse:collapse;">
+                    <thead>
+                        <tr style="color:#888; text-align:left;">
+                            <th style="padding:4px 8px 4px 0;">@L.T("detail.dropsHeader.duelist")</th>
+                            <th style="padding:4px 8px;">@L.T("detail.dropsHeader.pool")</th>
+                            <th style="padding:4px 8px; text-align:right;">@L.T("detail.dropsHeader.weight")</th>
+                            <th style="padding:4px 8px; text-align:right;">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in drops)
+                        {
+                            var portraitUrl = ExtractedAssets.GetDuelist(d.DuelistId);
+                            <tr style="border-top:1px solid #1e1e4a;">
+                                <td style="padding:4px 8px 4px 0;">
+                                    <span style="display:inline-flex; align-items:center; gap:8px;
+                                                 cursor:pointer; color:#cfcfe0;"
+                                          title="@L.T("detail.openDuelistTitle", d.DuelistName)"
+                                          @onclick="@(() => OpenDuelistFromDrop(d.DuelistId))">
+                                        @if (portraitUrl is not null)
+                                        {
+                                            <img src="@portraitUrl" alt="@d.DuelistName"
+                                                 style="width:24px; height:24px; object-fit:contain;
+                                                        image-rendering:pixelated;
+                                                        border:1px solid #2a2a6e; border-radius:3px;
+                                                        background:#0a0a18; flex-shrink:0;" />
+                                        }
+                                        else
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Person"
+                                                     Size="Size.Small" Style="color:#666;" />
+                                        }
+                                        <span style="text-decoration:underline; text-decoration-color:#2a2a6e;
+                                                     text-underline-offset:2px;">
+                                            @d.DuelistName
+                                        </span>
+                                    </span>
+                                </td>
+                                <td style="padding:4px 8px; color:@PoolColor(d.Pool); font-weight:600;">
+                                    @PoolName(d.Pool)
+                                </td>
+                                <td style="padding:4px 8px; text-align:right;">@d.Weight / 2048</td>
+                                <td style="padding:4px 8px; text-align:right; color:#c8a415;">
+                                    @d.Percent.ToString("F2")%
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else if (RomData.Duelists.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    @L.T("detail.dropsNone")
+                </MudText>
+            }
+        }
+
+        @* ── Toggle texto/imagens + zoom ─────────────────── *@
+        @if (AllCards is not null)
+        {
+            <div class="d-flex align-center gap-2 mt-3 flex-wrap"
+                 style="padding:6px 10px; background:#15152e; border-radius:6px;">
+                <MudIcon Icon="@Icons.Material.Filled.Tune" Size="Size.Small" Style="color:#888;" />
+                <MudText Typo="Typo.caption" Style="color:#888;">
+                    @L.T("detail.toggleAs")
+                </MudText>
+                <MudToggleGroup T="bool" SelectionMode="SelectionMode.SingleSelection"
+                                Value="_useImages" ValueChanged="OnToggleImages"
+                                Color="Color.Secondary" Dense="true" CheckMark="false">
+                    <MudToggleItem Value="false">
+                        <MudIcon Icon="@Icons.Material.Filled.ViewList" Size="Size.Small" /> @L.T("detail.toggleText")
+                    </MudToggleItem>
+                    <MudToggleItem Value="true">
+                        <MudIcon Icon="@Icons.Material.Filled.ViewModule" Size="Size.Small" /> @L.T("detail.toggleImages")
+                    </MudToggleItem>
+                </MudToggleGroup>
+
+                <MudSpacer />
+
+                @* Zoom — só faz sentido no modo imagens. Esconder evita
+                   enganar o usuário que clica e nada acontece visivelmente. *@
+                @if (_useImages)
+                {
+                    <div class="d-flex align-center gap-1" title="@L.T("detail.cardsZoomTitle")">
+                        <MudIcon Icon="@Icons.Material.Filled.ZoomOut" Size="Size.Small" Style="color:#888;" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                       Size="Size.Small"
+                                       OnClick="ZoomOut"
+                                       Disabled="@(_imageScale <= ScaleMin)" />
+                        <MudText Typo="Typo.caption"
+                                 Style="min-width:42px; text-align:center; color:#c8a415; font-weight:600;">
+                            @($"{(int)Math.Round(_imageScale * 100)}%")
+                        </MudText>
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       Size="Size.Small"
+                                       OnClick="ZoomIn"
+                                       Disabled="@(_imageScale >= ScaleMax)" />
+                        <MudIcon Icon="@Icons.Material.Filled.ZoomIn" Size="Size.Small" Style="color:#888;" />
+                    </div>
+                }
+            </div>
+        }
+
+        @* ── Equips ───────────────────────────────────────────────────── *@
+        @if (AllCards is not null)
+        {
+            var equipList    = ResolveEquipsForCard();
+            var equipTargets = ResolveEquipTargets();
+            var equipTotal   = equipList.Count + equipTargets.Count;
+
+            if (equipTotal > EquipFilterThreshold)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudTextField T="string" Value="_equipFilter"
+                              ValueChanged="@(v => { _equipFilter = v ?? ""; })"
+                              Immediate="true"
+                              Placeholder="@L.T("detail.equipFilterPlaceholder")"
+                              Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Clearable="true"/>
+            }
+
+            var filteredEquips  = equipList.Where(c => MatchesFilter(c, _equipFilter)).ToList();
+            var filteredTargets = equipTargets.Where(c => MatchesFilter(c, _equipFilter)).ToList();
+
+            if (equipList.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                    @(filteredEquips.Count != equipList.Count
+                        ? L.T("detail.equipsCompatible.partial", filteredEquips.Count, equipList.Count)
+                        : L.T("detail.equipsCompatible", filteredEquips.Count))
+                </MudText>
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                    @foreach (var e in filteredEquips)
+                    {
+                        @CardTile(e, Color.Secondary)
+                    }
+                    @if (filteredEquips.Count == 0)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666; font-style:italic;">
+                            @L.T("detail.equipFilterNoMatch", _equipFilter)
+                        </MudText>
+                    }
+                </div>
+            }
+
+            if (equipTargets.Count > 0)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                    @(filteredTargets.Count != equipTargets.Count
+                        ? L.T("detail.equipsCanEquip.partial", filteredTargets.Count, equipTargets.Count)
+                        : L.T("detail.equipsCanEquip", filteredTargets.Count))
+                </MudText>
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                    @foreach (var m in filteredTargets)
+                    {
+                        @CardTile(m, Color.Info)
+                    }
+                    @if (filteredTargets.Count == 0)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666; font-style:italic;">
+                            @L.T("detail.equipTargetFilterNoMatch", _equipFilter)
+                        </MudText>
+                    }
+                </div>
+            }
+        }
+
+        @* ── Fusões — esta carta é resultado de … ──────────────────────── *@
+        @if (AllCards is not null)
+        {
+            var asResult     = ResolveFusionsAsResult();
+            var asMaterial   = ResolveFusionsAsMaterial();
+            var fusionTotal  = asResult.Count + asMaterial.Count;
+
+            // Filtra cada par: a linha aparece se QUALQUER carta da combinação
+            // (material A, material B ou resultado) bate com o filtro — sem isso
+            // o usuário precisaria saber exatamente em que lado a carta está.
+            var fAsResult   = string.IsNullOrWhiteSpace(_fusionFilter)
+                            ? asResult
+                            : asResult.Where(p =>
+                                MatchesFilter(p.Item1, _fusionFilter) ||
+                                MatchesFilter(p.Item2, _fusionFilter)).ToList();
+
+            var fAsMaterial = string.IsNullOrWhiteSpace(_fusionFilter)
+                            ? asMaterial
+                            : asMaterial.Where(p =>
+                                MatchesFilter(p.Other,  _fusionFilter) ||
+                                MatchesFilter(p.Result, _fusionFilter)).ToList();
+
+            // O minmax sobe com o zoom: cada combo ocupa exatamente o que precisa
+            // pra ficar A + B → C numa linha só, e o auto-fill encolhe o nº de
+            // colunas conforme o zoom cresce.
+            string fusionGridStyle =
+                $"display:grid; grid-template-columns:repeat(auto-fill, minmax({ComboMinWidthPx}px, 1fr));"
+              + " gap:8px 12px; align-items:stretch;";
+
+            if (fusionTotal > FusionFilterThreshold)
+            {
+                <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+                <MudTextField T="string" Value="_fusionFilter"
+                              ValueChanged="@(v => { _fusionFilter = v ?? ""; })"
+                              Immediate="true"
+                              Placeholder="@L.T("detail.fusionFilterPlaceholder")"
+                              Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Clearable="true"/>
+            }
+
+            <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+            <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                @(fAsResult.Count != asResult.Count
+                    ? L.T("detail.fusionsAsResult.partial", fAsResult.Count, asResult.Count)
+                    : L.T("detail.fusionsAsResult", fAsResult.Count))
+            </MudText>
+            @if (asResult.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    @L.T("detail.fusionsNoneAsResult")
+                </MudText>
+            }
+            else if (fAsResult.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    @L.T("detail.fusionsNoneAsResultFiltered")
+                </MudText>
+            }
+            else
+            {
+                <div class="mt-2" style="max-height:@(_useImages ? "none" : "320px"); overflow:auto;">
+                    <div style="@fusionGridStyle">
+                        @foreach (var (a, b) in fAsResult.Take(80))
+                        {
+                            <div class="fusion-combo d-flex align-center gap-1"
+                                 style="padding:8px 10px;
+                                        background:#10102a;
+                                        border:1px solid #2a2a6e;
+                                        border-radius:6px;
+                                        flex-wrap:nowrap; overflow:hidden;">
+                                @CardTile(a, Color.Default)
+                                <span style="@SeparatorTextStyle">+</span>
+                                @CardTile(b, Color.Default)
+                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Style="@SeparatorIconStyle" />
+                                @CardTile(Card, Color.Primary, isSelf: true)
+                            </div>
+                        }
+                    </div>
+                    @if (fAsResult.Count > 80)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666;">
+                            @L.T("detail.fusionsMore", fAsResult.Count - 80)
+                        </MudText>
+                    }
+                </div>
+            }
+
+            <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+            <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                @(fAsMaterial.Count != asMaterial.Count
+                    ? L.T("detail.fusionsAsMaterial.partial", fAsMaterial.Count, asMaterial.Count)
+                    : L.T("detail.fusionsAsMaterial", fAsMaterial.Count))
+            </MudText>
+            @if (asMaterial.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    @L.T("detail.fusionsNoneAsMaterial")
+                </MudText>
+            }
+            else if (fAsMaterial.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="color:#666; font-style:italic;">
+                    @L.T("detail.fusionsNoneAsMaterialFiltered")
+                </MudText>
+            }
+            else
+            {
+                <div class="mt-2" style="max-height:@(_useImages ? "none" : "320px"); overflow:auto;">
+                    <div style="@fusionGridStyle">
+                        @foreach (var (other, result) in fAsMaterial.Take(120))
+                        {
+                            <div class="fusion-combo d-flex align-center gap-1"
+                                 style="padding:8px 10px;
+                                        background:#10102a;
+                                        border:1px solid #2a2a6e;
+                                        border-radius:6px;
+                                        flex-wrap:nowrap; overflow:hidden;">
+                                @CardTile(Card, Color.Primary, isSelf: true)
+                                <span style="@SeparatorTextStyle">+</span>
+                                @CardTile(other, Color.Default)
+                                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Style="@SeparatorIconStyle" />
+                                @CardTile(result, Color.Success)
+                            </div>
+                        }
+                    </div>
+                    @if (fAsMaterial.Count > 120)
+                    {
+                        <MudText Typo="Typo.caption" Style="color:#666;">
+                            @L.T("detail.fusionsMaterialMore", fAsMaterial.Count - 120)
+                        </MudText>
+                    }
+                </div>
+            }
+        }
+
+        @* ── Rituais — recipes que invocam esta carta ──────────────────── *@
+        @if (AllCards is not null && Card.Rituals.Count > 0)
+        {
+            <MudDivider Class="my-3" Style="border-color:#1e1e4a;" />
+            <MudText Typo="Typo.overline" Style="color:#888; letter-spacing:2px;">
+                @L.T("detail.ritualsTitle", Card.Rituals.Count)
+            </MudText>
+            @* Ritual usa 4 ingredientes (magic + 3 monstros) + result = 5
+               cards por linha. Não cabe mais de uma operação por linha
+               com folga, então forçamos grid de coluna única. *@
+            <div class="mt-2" style="max-height:none; overflow:auto;">
+                <div style="display:grid; grid-template-columns:1fr; gap:8px;">
+                    @foreach (var recipe in Card.Rituals)
+                    {
+                        <div class="fusion-combo d-flex align-center gap-1"
+                             style="padding:8px 10px;
+                                    background:#10102a;
+                                    border:1px solid #2a2a6e;
+                                    border-radius:6px;
+                                    flex-wrap:nowrap; overflow:auto;">
+                            @{
+                                // Ingredients e Result são 0-based (LabJsonImporter
+                                // converte ao importar); CardId é 1-based, então +1.
+                                var ingredients = recipe.Ingredients
+                                                   .Select(i => AllCards.FirstOrDefault(c => c.CardId == i + 1))
+                                                   .Where(c => c is not null)
+                                                   .Cast<Card>()
+                                                   .ToList();
+                                var resultCard = AllCards.FirstOrDefault(c => c.CardId == recipe.Result + 1);
+                            }
+                            @for (int i = 0; i < ingredients.Count; i++)
+                            {
+                                if (i > 0)
+                                {
+                                    <span style="@SeparatorTextStyle">+</span>
+                                }
+                                @CardTile(ingredients[i], Color.Default)
+                            }
+                            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome"
+                                     Style="@SeparatorIconStyle"
+                                     title="Ritual" />
+                            @if (resultCard is not null)
+                            {
+                                @CardTile(resultCard, Color.Primary, isSelf: resultCard.CardId == Card.CardId)
+                            }
+                            else
+                            {
+                                <span style="color:#666;">#@(recipe.Result + 1)</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        </div> @* fim do wrapper @key *@
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   OnClick="Close">Fechar</MudButton>
+        @if (_history.Count > 0)
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="GoBack">
+                @L.T("common.back")
+            </MudButton>
+        }
+        @if (IsBasedeDatosTeaMod())
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
+                       StartIcon="@Icons.Material.Filled.OpenInNew"
+                       OnClick="OpenOnSite"
+                       title="@L.T("detail.openOnSiteHint")">
+                @L.T("detail.openOnSite")
+            </MudButton>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">
+            @L.T("common.close")
+        </MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
-    [Parameter, EditorRequired] public Card Card { get; set; } = default!;
+
+    /// <summary>Carta efetivamente exibida. Inicializada do parâmetro
+    /// na primeira passagem e atualizada por
+    /// <see cref="Reopen"/> / <see cref="GoBack"/>.</summary>
+    private Card? _currentCard;
+
+    /// <summary>
+    /// O parâmetro <c>Card</c> é roteado por <see cref="_currentCard"/>:
+    ///   • Setter (Blazor invoca a cada render do parent): só inicializa
+    ///     se ainda não temos uma carta atual — re-renders do parent NÃO
+    ///     sobrescrevem a navegação interna.
+    ///   • Getter: retorna a carta atual; toda <c>@Card.X</c> no markup
+    ///     reflete imediatamente a nova carta após Reopen/GoBack.
+    /// Sem isso, navegar de A → B fazia o ciclo de parâmetros do Blazor
+    /// reverter pra A em re-renders posteriores, gerando "fantasmas" das
+    /// listas (fusões, rituais) da carta anterior.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public Card Card
+    {
+        get => _currentCard!;
+        set => _currentCard ??= value;
+    }
+
+    /// <summary>Optional: full card list. Without it, the equip & fusion-link sections are hidden.</summary>
+    [Parameter] public IReadOnlyList<Card>? AllCards { get; set; }
+
+    /// <summary>Optional: full ROM data (cards + duelists). Without it, the drops section is hidden.</summary>
+    [Parameter] public LoadedRomData? RomData { get; set; }
+
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        L.Changed += OnLocaleChanged;
+    }
+
+    private void OnLocaleChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => L.Changed -= OnLocaleChanged;
 
     private const string LabelStyle =
         "color:#888; padding:4px 12px 4px 0; font-weight:500; vertical-align:top; width:160px;";
@@ -72,5 +566,309 @@
     private static string StarString(int level) =>
         string.Concat(Enumerable.Repeat("★", Math.Clamp(level, 0, 12)));
 
+    /// <summary>Stack de cartas visitadas durante a sessão deste diálogo.
+    /// Permite navegação Voltar sem perder o caminho.</summary>
+    private readonly Stack<Card> _history = new();
+
+    /// <summary>Quando true (padrão), equips e fusões mostram a arte da carta;
+    /// quando false, mostram chips textuais — opção compacta pra listas longas
+    /// e leitura rápida.</summary>
+    private bool _useImages = true;
+
+    /// <summary>Filtro de nome aplicado às listas de equips. Só é exibido
+    /// quando o total combinado (compatíveis + alvos) passa de
+    /// <see cref="EquipFilterThreshold"/>.</summary>
+    private string _equipFilter = "";
+
+    /// <summary>Filtro de nome aplicado às listas de fusões. Só é exibido
+    /// quando o total combinado (resultado + material) passa de
+    /// <see cref="FusionFilterThreshold"/>.</summary>
+    private string _fusionFilter = "";
+
+    private const int EquipFilterThreshold  = 10;
+    private const int FusionFilterThreshold = 20;
+
+    /// <summary>Escala atual das imagens nos tiles. 1.0 = tamanho base (≈156 px).
+    /// Padrão 1.0 — cresce para 50% (cabe muito por linha) ou até 150%.</summary>
+    private double _imageScale = 1.0;
+    private const double TileBaseWidthPx = 156;
+    private const double ScaleMin = 0.25;
+    private const double ScaleMax = 1.50;
+    private const double ScaleStep = 0.10;
+
+    private int TileWidthPx => (int)Math.Round(TileBaseWidthPx * _imageScale);
+
+    /// <summary>Largura mínima de uma combinação A + B → C, em px.
+    /// Usado no <c>grid-template-columns</c> pra garantir que cada combo
+    /// caiba INTEIRO numa coluna (sem quebrar o "+" e a "→" pra outra linha).
+    /// Sobe junto com o zoom: zoom maior ⇒ menos colunas no grid.</summary>
+    private int ComboMinWidthPx => 3 * TileWidthPx
+                                 + 2 * SeparatorBoxPx   // "+" e "→"
+                                 + 4 * 4                // gaps internos (gap-1 = 4px)
+                                 + 20;                  // padding lateral da caixa
+
+    /// <summary>Tamanho dos separadores ("+" e ícone "→") em px, escalado
+    /// junto com a carta — sem isso eles ficam minúsculos em zoom alto.</summary>
+    private int SeparatorBoxPx => Math.Max(14, (int)Math.Round(20 * _imageScale));
+
+    private string SeparatorTextStyle =>
+        $"color:#888; font-size:{Math.Max(12, (int)Math.Round(18 * _imageScale))}px; font-weight:600;";
+
+    private string SeparatorIconStyle =>
+        $"color:#666; width:{SeparatorBoxPx}px; height:{SeparatorBoxPx}px;";
+
+    private void ZoomIn()  { _imageScale = Math.Min(ScaleMax, Math.Round(_imageScale + ScaleStep, 2)); StateHasChanged(); }
+    private void ZoomOut() { _imageScale = Math.Max(ScaleMin, Math.Round(_imageScale - ScaleStep, 2)); StateHasChanged(); }
+
+    private void OnToggleImages(bool value)
+    {
+        _useImages = value;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Renderiza uma carta como chip de texto OU como tile com a arte,
+    /// dependendo de <see cref="_useImages"/>. <paramref name="isSelf"/>
+    /// indica que a carta é a do diálogo atual: nesse caso o tile não é
+    /// clicável (não tem sentido reabrir a si mesma).
+    /// </summary>
+    private RenderFragment CardTile(Card c, Color color, bool isSelf = false) => @<text>
+        @if (_useImages)
+        {
+            <div role="button"
+                 class="@(isSelf ? "" : "card-tile-clickable")"
+                 @onclick="@(() => { if (!isSelf) Reopen(c); })"
+                 title="@c.GetTitle()"
+                 style="@($"position:relative; width:{TileWidthPx}px;")
+                        border:2px solid @TileBorderColor(color);
+                        border-radius:6px; overflow:hidden; background:#1a1a3a;
+                        cursor:@(isSelf ? "default" : "pointer");
+                        flex:0 0 auto;">
+                <CardCover Card="@c" WidthPx="@TileWidthPx" />
+                <div style="position:absolute; left:0; right:0; bottom:0;
+                            background:linear-gradient(180deg, transparent, rgba(0,0,0,.85));
+                            color:#fff; font-size:10px; padding:14px 4px 3px;
+                            line-height:1.1; white-space:nowrap;
+                            overflow:hidden; text-overflow:ellipsis;">
+                    @c.Name
+                </div>
+            </div>
+        }
+        else
+        {
+            <MudChip T="string" Size="Size.Small"
+                     Color="@color"
+                     Variant="@(isSelf ? Variant.Filled : Variant.Outlined)"
+                     OnClick="@(() => { if (!isSelf) Reopen(c); })">
+                @c.Name
+            </MudChip>
+        }
+    </text>;
+
+    private static string TileBorderColor(Color c) => c switch
+    {
+        Color.Primary   => "#c8a415",
+        Color.Secondary => "#9c27b0",
+        Color.Info      => "#42a5f5",
+        Color.Success   => "#66bb6a",
+        _               => "#2a2a6e",
+    };
+
     private void Close() => MudDialog.Close(DialogResult.Ok(true));
+
+    /// <summary>Navega para outra carta no MESMO diálogo, empilhando a atual
+    /// no histórico. Atualiza <see cref="_currentCard"/> diretamente —
+    /// atribuir ao @Parameter <c>Card</c> seria no-op (o setter usa
+    /// <c>??=</c> pra ignorar reaplicações do parent).</summary>
+    private void Reopen(Card other)
+    {
+        if (other is null || _currentCard is null || other.CardId == _currentCard.CardId) return;
+        _history.Push(_currentCard);
+        _currentCard = other;
+        _equipFilter = "";
+        _fusionFilter = "";
+        StateHasChanged();
+    }
+
+    private void GoBack()
+    {
+        if (_history.Count == 0) return;
+        _currentCard = _history.Pop();
+        // Filtros são contextuais à carta atual — limpa pra não ficar
+        // escondendo resultados ao trocar.
+        _equipFilter = "";
+        _fusionFilter = "";
+        StateHasChanged();
+    }
+
+    private static bool MatchesFilter(Card c, string filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter)) return true;
+        return c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+            || c.CardId.ToString().Contains(filter);
+    }
+
+    private bool IsBasedeDatosTeaMod()
+    {
+        var tpl = ModContext.ImageUrlTemplate ?? "";
+        return tpl.Contains("basededatostea", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Abre a carta no navegador padrão usando o parâmetro <c>?card={id}</c>
+    /// suportado pela rota do SPA. O MOD ativo é lido pelo site a partir do
+    /// <c>localStorage["version"]</c> — convenção do próprio basededatostea —
+    /// então o usuário precisa ter selecionado o MOD desejado no site antes.
+    /// Não há query-param de mod; o app pai não consegue setar localStorage
+    /// cross-origin, daí a delegação ao usuário.
+    /// </summary>
+    private async Task OpenOnSite()
+    {
+        var url = $"https://www.basededatostea.xyz/extend/result/cards?card={Card.CardId}";
+        try
+        {
+            await Microsoft.Maui.ApplicationModel.Launcher.Default
+                .OpenAsync(new Uri(url));
+        }
+        catch
+        {
+            // Launcher pode falhar em ambientes sem browser default — silencia.
+        }
+    }
+
+    private List<Card> ResolveEquipsForCard()
+    {
+        if (AllCards is null) return [];
+        return Card.Equips
+            .Where(idx => idx >= 0 && idx < AllCards.Count)
+            .Select(idx => AllCards[idx])
+            .DistinctBy(c => c.CardId)
+            .OrderBy(c => c.Name)
+            .ToList();
+    }
+
+    private List<Card> ResolveEquipTargets()
+    {
+        if (AllCards is null) return [];
+        return Card.EquipTargets
+            .Where(idx => idx >= 0 && idx < AllCards.Count)
+            .Select(idx => AllCards[idx])
+            .DistinctBy(c => c.CardId)
+            .OrderBy(c => c.Name)
+            .ToList();
+    }
+
+    /// <summary>(material1, material2) tuples whose fusion result == this card.</summary>
+    private List<(Card, Card)> ResolveFusionsAsResult()
+    {
+        if (AllCards is null) return [];
+        int self = Card.CardId - 1;
+        var pairs = new List<(Card, Card)>();
+        foreach (var a in AllCards)
+        {
+            for (int i = 0; i < a.FusionResults.Count; i++)
+            {
+                if (a.FusionResults[i] != self) continue;
+                int b = a.FusionMaterials[i];
+                if (b < 0 || b >= AllCards.Count) continue;
+                if (a.CardId - 1 > b) continue; // dedupe (a,b) and (b,a)
+                pairs.Add((a, AllCards[b]));
+            }
+        }
+        return pairs;
+    }
+
+    /// <summary>(otherMaterial, result) for every fusion where this card is one of the two materials.</summary>
+    private List<(Card Other, Card Result)> ResolveFusionsAsMaterial()
+    {
+        if (AllCards is null) return [];
+        int self = Card.CardId - 1;
+        var list = new List<(Card, Card)>();
+
+        // Outgoing: this.FusionMaterials[i] = other → this.FusionResults[i] = result
+        for (int i = 0; i < Card.FusionMaterials.Count; i++)
+        {
+            int otherIdx = Card.FusionMaterials[i];
+            int resIdx   = Card.FusionResults[i];
+            if (otherIdx < 0 || otherIdx >= AllCards.Count || resIdx < 0 || resIdx >= AllCards.Count) continue;
+            list.Add((AllCards[otherIdx], AllCards[resIdx]));
+        }
+
+        // Incoming: any other.FusionMaterials[i] == self → other + this → result
+        foreach (var other in AllCards)
+        {
+            if (other.CardId - 1 == self) continue;
+            for (int i = 0; i < other.FusionMaterials.Count; i++)
+            {
+                if (other.FusionMaterials[i] != self) continue;
+                int resIdx = other.FusionResults[i];
+                if (resIdx < 0 || resIdx >= AllCards.Count) continue;
+                list.Add((other, AllCards[resIdx]));
+            }
+        }
+
+        return list
+            .GroupBy(t => (t.Item1.CardId, t.Item2.CardId))
+            .Select(g => g.First())
+            .OrderBy(t => t.Item1.Name)
+            .ToList();
+    }
+
+    /// <summary>Abre o modal de duelista a partir de uma linha da tabela
+    /// de drops. Resolve o <see cref="Duelist"/> em <c>RomData.Duelists</c>
+    /// pelo Id; ignora silenciosamente se RomData estiver ausente.</summary>
+    private async Task OpenDuelistFromDrop(int duelistId)
+    {
+        if (RomData is null) return;
+        var duelist = RomData.Duelists.FirstOrDefault(x => x.Id == duelistId);
+        if (duelist is null) return;
+
+        var parameters = new DialogParameters
+        {
+            ["Duelist"]  = duelist,
+            ["AllCards"] = RomData.Cards,
+            ["RomData"]  = RomData,
+        };
+        var options = new DialogOptions
+        {
+            CloseButton  = true, MaxWidth = MaxWidth.ExtraLarge,
+            FullWidth    = true, BackdropClick = true,
+        };
+        await DialogService.ShowAsync<DuelistDetailDialog>(duelist.Name, parameters, options);
+    }
+
+    private static string PoolName(DropPoolKind k) => k switch
+    {
+        DropPoolKind.SaPow  => "S/A POW",
+        DropPoolKind.SaTec  => "S/A TEC",
+        DropPoolKind.BcdPow => "B/C/D POW",
+        _ => "?",
+    };
+
+    private static string PoolColor(DropPoolKind k) => k switch
+    {
+        DropPoolKind.SaPow  => "#ef5350",   // red
+        DropPoolKind.SaTec  => "#42a5f5",   // blue
+        DropPoolKind.BcdPow => "#9ccc65",   // green
+        _ => "#999",
+    };
+
+    /// <summary>Forbidden = banlist (vermelho). 1 cópia = severamente
+    /// limitado (laranja). 2 cópias = semi-limitado (amarelo). 3 = livre
+    /// (não chega aqui — só renderizamos quando Limited > 0).</summary>
+    private static MudBlazor.Color LimitedChipColor(int limited) => limited switch
+    {
+        1 => MudBlazor.Color.Error,
+        2 => MudBlazor.Color.Warning,
+        3 => MudBlazor.Color.Success,
+        _ => MudBlazor.Color.Default,
+    };
+
+    private static string LimitedLabel(int limited) => limited switch
+    {
+        1 => "Limited (1)",
+        2 => "Semi-Limited (2)",
+        3 => "Sem restrição (3)",
+        _ => "—",
+    };
 }

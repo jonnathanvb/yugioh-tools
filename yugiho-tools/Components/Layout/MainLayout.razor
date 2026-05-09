@@ -1,4 +1,10 @@
 @inherits LayoutComponentBase
+@inject yugiho_tools.Application.Services.LocalizationService L
+@inject yugiho_tools.Application.Services.CurrentModContext   ModContext
+@inject yugiho_tools.Application.Services.LoadedRomCache      RomCache
+@inject yugiho_tools.Domain.Interfaces.IModRepository         ModRepo
+@inject NavigationManager                                     Nav
+@implements IDisposable
 
 <MudThemeProvider Theme="_theme" IsDarkMode="true" />
 <MudPopoverProvider />
@@ -19,10 +25,63 @@
             YU-GI-OH! FORBIDDEN MEMORIES Tools Fusion
         </MudText>
         <MudSpacer />
-        <MudText Typo="Typo.caption" Style="color:#888;">
-            jonnathanvb
-        </MudText>
+        @* MOD ativo no canto direito do app bar — substitui o picker
+           que existia em cada página. Clique navega pra /mods. *@
+        @if (ModContext.Current is { } mod)
+        {
+            <MudButton Variant="Variant.Text"
+                       OnClick="@(() => Nav.NavigateTo("/mods"))"
+                       StartIcon="@Icons.Material.Filled.LibraryBooks"
+                       Style="color:#c8a415; text-transform:none;">
+                <div class="d-flex flex-column align-start" style="line-height:1.1;">
+                    <MudText Typo="Typo.caption" Style="color:#888; letter-spacing:1px;">
+                        @L.T("activeMod.label")
+                    </MudText>
+                    <MudText Typo="Typo.body2" Style="color:#c8a415; font-weight:700;">
+                        @mod.Name
+                    </MudText>
+                </div>
+            </MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       OnClick="@(() => Nav.NavigateTo("/mods"))"
+                       StartIcon="@Icons.Material.Filled.LibraryBooks">
+                @L.T("activeMod.pick")
+            </MudButton>
+        }
     </MudAppBar>
+
+    @* ── Barra de progresso global ───────────────────────────────────
+       Mostrada em qualquer página enquanto o RomCache estiver carregando.
+       Posicionada fixa logo abaixo do MudAppBar (top:64px), ocupa toda a
+       largura, com mensagem de status à direita. Sumiu = ROM em RAM. *@
+    @if (RomCache.IsLoading)
+    {
+        <div style="position:fixed; top:64px; left:0; right:0; z-index:1300;
+                    background:#0d0d1a; border-bottom:1px solid #c8a415;
+                    padding:6px 16px;">
+            <div class="d-flex align-center gap-3">
+                <MudIcon Icon="@Icons.Material.Filled.CloudDownload"
+                         Style="color:#c8a415;" Size="Size.Small" />
+                <MudText Typo="Typo.caption"
+                         Style="color:#c8a415; font-weight:600; min-width:200px;">
+                    @(RomCache.LoadedFor?.Name ?? "MOD") · @RomCache.Message
+                </MudText>
+                <div style="flex:1;">
+                    <MudProgressLinear Value="@RomCache.Progress"
+                                       Color="Color.Primary"
+                                       Rounded="true" Size="Size.Small" />
+                </div>
+                <MudText Typo="Typo.caption"
+                         Style="color:#c8a415; min-width:42px; text-align:right;">
+                    @RomCache.Progress%
+                </MudText>
+            </div>
+        </div>
+    }
 
     <MudDrawer @bind-Open="_drawerOpen"
                ClipMode="DrawerClipMode.Always"
@@ -30,30 +89,74 @@
                OpenMiniOnHover="true"
                Style="background:#0d0d1a; border-right:1px solid #2a2a6e; padding-top:24px;">
         <MudNavMenu Class="nav-menu-spaced">
-            <MudNavLink Href="/" Match="NavLinkMatch.All"
-                        Icon="@Icons.Material.Filled.AccountTree"
-                        IconColor="Color.Primary"
-                        Class="my-2 py-3">
-                Fusões
-            </MudNavLink>
-            <MudNavLink Href="/mods"
-                        Icon="@Icons.Material.Filled.LibraryBooks"
-                        IconColor="Color.Primary"
-                        Class="my-2 py-3">
-                MODs
-            </MudNavLink>
-            <MudNavLink Href="/memory-card"
-                        Icon="@Icons.Material.Filled.SdCard"
-                        IconColor="Color.Primary"
-                        Class="my-2 py-3">
-                Memory Card
-            </MudNavLink>
-            <MudNavLink Href="/settings"
-                        Icon="@Icons.Material.Filled.Settings"
-                        IconColor="Color.Primary"
-                        Class="my-2 py-3">
-                Configurações
-            </MudNavLink>
+            @* ── Cards ─────────────────────────────────────────────
+               Search: pesquisa + detalhes; Fusões: simulador (home);
+               Duelist: oponentes e drops. *@
+            <MudNavGroup Title="@L.T("menu.cards")"
+                         Icon="@Icons.Material.Filled.Style"
+                         IconColor="Color.Primary"
+                         Expanded="true">
+                <MudNavLink Href="/cards"
+                            Icon="@Icons.Material.Filled.Search"
+                            IconColor="Color.Primary"
+                            Class="my-1 py-2">
+                    @L.T("menu.cards.search")
+                </MudNavLink>
+                <MudNavLink Href="/" Match="NavLinkMatch.All"
+                            Icon="@Icons.Material.Filled.AccountTree"
+                            IconColor="Color.Primary"
+                            Class="my-1 py-2">
+                    @L.T("menu.fusions")
+                </MudNavLink>
+                <MudNavLink Href="/duelists"
+                            Icon="@Icons.Material.Filled.Group"
+                            IconColor="Color.Primary"
+                            Class="my-1 py-2">
+                    @L.T("menu.duelists")
+                </MudNavLink>
+            </MudNavGroup>
+
+            @* ── Deck ─────────────────────────────────────────────
+               Favorites: listas curadas pelo usuário; Memory Card:
+               importa o deck do save do emulador. *@
+            <MudNavGroup Title="@L.T("menu.deck")"
+                         Icon="@Icons.Material.Filled.Inventory2"
+                         IconColor="Color.Primary"
+                         Expanded="true">
+                <MudNavLink Href="/favorites"
+                            Icon="@Icons.Material.Filled.Star"
+                            IconColor="Color.Primary"
+                            Class="my-1 py-2">
+                    @L.T("menu.favorites")
+                </MudNavLink>
+                <MudNavLink Href="/memory-card"
+                            Icon="@Icons.Material.Filled.SdCard"
+                            IconColor="Color.Primary"
+                            Class="my-1 py-2">
+                    @L.T("menu.memoryCard")
+                </MudNavLink>
+            </MudNavGroup>
+
+            @* ── Settings ─────────────────────────────────────────
+               System: idioma, atalhos, paleta; Mods: cadastro e
+               extração de MODs. *@
+            <MudNavGroup Title="@L.T("menu.settings")"
+                         Icon="@Icons.Material.Filled.Settings"
+                         IconColor="Color.Primary"
+                         Expanded="true">
+                <MudNavLink Href="/settings"
+                            Icon="@Icons.Material.Filled.Tune"
+                            IconColor="Color.Primary"
+                            Class="my-1 py-2">
+                    @L.T("menu.settings.system")
+                </MudNavLink>
+                <MudNavLink Href="/mods"
+                            Icon="@Icons.Material.Filled.LibraryBooks"
+                            IconColor="Color.Primary"
+                            Class="my-1 py-2">
+                    @L.T("menu.mods")
+                </MudNavLink>
+            </MudNavGroup>
         </MudNavMenu>
     </MudDrawer>
 
@@ -65,6 +168,31 @@
 @code {
     private bool _drawerOpen = true;
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Re-renderiza o menu quando o idioma mudar, o app bar quando o
+        // MOD ativo for trocado, e a barra de progresso global a cada
+        // update de carregamento do ROM.
+        L.Changed          += OnChanged;
+        ModContext.Changed += OnChanged;
+        RomCache.Changed   += OnChanged;
+        // Restaura o mod ativo persistido — outras telas observam
+        // CurrentModContext em vez de pedir ao usuário pra escolher.
+        await ModContext.RestoreFromPreferencesAsync(ModRepo);
+        // Pré-carrega o ROM do MOD restaurado em background. Páginas
+        // observam RomCache.Changed e renderizam quando estiver pronto.
+        _ = RomCache.InitializeAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        L.Changed          -= OnChanged;
+        ModContext.Changed -= OnChanged;
+        RomCache.Changed   -= OnChanged;
+    }
 
     private readonly MudTheme _theme = new()
     {

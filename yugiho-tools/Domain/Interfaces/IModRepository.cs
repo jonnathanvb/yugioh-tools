@@ -19,4 +19,8 @@ public interface IModRepository
 
     string GetGameFilePath(Mod mod);
     string GetMrgFilePath(Mod mod);
+
+    /// <summary>Pasta raiz do MOD em disco (<c>MOD/{slug}/</c>) — usada
+    /// pra guardar artefatos extraídos (data.json, imagens decodificadas).</summary>
+    string GetModFolderPath(Mod mod);
 }

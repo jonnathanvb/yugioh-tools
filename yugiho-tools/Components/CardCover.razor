@@ -1,0 +1,201 @@
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+@using System.Globalization
+@inject CurrentModContext ModContext
+@inject AppSettings Cfg
+
+@*
+   Render uniforme da capa da carta. Em modo MOD compõe três camadas:
+     1. Frame 144×200 decodificado do ROM (cardTransform1).
+     2. Arte 102×96 posicionada em (19,50) — coords de positions.image.
+     3. Overlays HTML com nome, ATK e DEF — o ROM não desenha esses
+        textos no body, eles são compostos em runtime pelo jogo. Como
+        portar o renderer de fonte do FM seria trabalho separado, usamos
+        texto HTML posicionado nos slots corretos (positions.{atk,def,text}).
+
+   Em modo TEA, fica como antes: <img> simples, frame já vem embutido.
+*@
+
+@if (Cfg.ImageSource == ImageSource.Mod && CardFrameRegistry.HasFrames)
+{
+    var frameUrl = CardFrameRegistry.GetFrameForCard(Card);
+    var artUrl   = CardImage.Url(ModContext.ImageUrlTemplate, Card.CardId);
+
+    var pxWidth = Fill ? "100%" : $"{WidthPx}px";
+    var aspect  = $"{CardFrameRegistry.FrameW} / {CardFrameRegistry.FrameH}";
+
+    bool isMonster = Card.Attribute < 6;
+
+    <div style="@($"position:relative; width:{pxWidth}; aspect-ratio:{aspect}; display:block; container-type:inline-size;{ExtraStyle}")"
+         class="@ImgClass fm-frame"
+         title="@Card.GetTitle()">
+
+        @* ── Frame ─────────────────────────────────────────────── *@
+        @if (frameUrl is not null)
+        {
+            <img src="@frameUrl" alt=""
+                 class="fm-frame-img"
+                 loading="lazy" />
+        }
+
+        @* ── Arte do monstro ───────────────────────────────────── *@
+        <img src="@artUrl" alt="@Card.Name"
+             class="fm-frame-art"
+             style="@PositionStyle(CardFrameRegistry.ArtX, CardFrameRegistry.ArtY,
+                                   CardFrameRegistry.ArtW, CardFrameRegistry.ArtH)"
+             loading="lazy" />
+
+        @* ── Nome (imagem extraída do ROM, fallback texto) ───────── *@
+        @{
+            var nameImg = ExtractedAssets.GetName(Card.CardId);
+        }
+        @if (nameImg is not null)
+        {
+            @* mix-blend-mode:lighten descarta o fundo preto do BMP
+               (sem alpha channel) sobre o frame dourado — só o texto
+               em amarelo claro fica visível. *@
+            <img src="@nameImg" alt="@Card.Name"
+                 class="fm-frame-name-img"
+                 style="@PositionStyle(CardFrameRegistry.NameX, CardFrameRegistry.NameY,
+                                       CardFrameRegistry.NameW, CardFrameRegistry.NameH)" />
+        }
+        else
+        {
+            <div class="fm-frame-text fm-frame-name"
+                 style="@PositionStyle(CardFrameRegistry.NameX, CardFrameRegistry.NameY,
+                                       CardFrameRegistry.NameW, CardFrameRegistry.NameH)">
+                @Card.Name
+            </div>
+        }
+
+        @* ── Atributo (ícone extraído) ─────────────────────────── *@
+        @{
+            var attrImg = ExtractedAssets.GetAttribute(Card.Attribute);
+        }
+        @if (attrImg is not null)
+        {
+            @* Atributo é 16×16 em coordenadas de canvas. Posicionamos
+               em (AttrX, AttrY) com largura/altura proporcionais ao
+               canvas pra ele escalar junto com o frame. *@
+            const int AttrIconSize = 16;
+            <img src="@attrImg" alt=""
+                 class="fm-frame-attr-img"
+                 style="@PositionStyle(CardFrameRegistry.AttrX, CardFrameRegistry.AttrY,
+                                       AttrIconSize, AttrIconSize)" />
+        }
+
+        @* ── Estrelas de level (imagem do star repetida) ──────── *@
+        @{
+            var starImg = ExtractedAssets.GetStar();
+        }
+        @if (starImg is not null && isMonster && Card.Level > 0)
+        {
+            var starsStyle = StarsStyle(Card.Level);
+            <div class="fm-frame-stars" style="@starsStyle">
+                @for (int i = 0; i < Math.Min(Card.Level, 12); i++)
+                {
+                    @* aspect-ratio:1 garante que a estrela fica quadrada
+                       independente da altura calculada; sem isso, com img
+                       4bpp/8bpp o browser pode usar dimensão "natural"
+                       que não bate com nosso layout. *@
+                    <img src="@starImg" alt=""
+                         style="height:100%; aspect-ratio:1; image-rendering:pixelated;" />
+                }
+            </div>
+        }
+
+        @* ── ATK / DEF como texto (não temos fonte do ROM) ───── *@
+        @if (isMonster)
+        {
+            <div class="fm-frame-text fm-frame-atk"
+                 style="@PositionStyle(CardFrameRegistry.AtkX, CardFrameRegistry.AtkY,
+                                       CardFrameRegistry.AtkW, CardFrameRegistry.AtkH)">
+                @Card.Attack
+            </div>
+            <div class="fm-frame-text fm-frame-def"
+                 style="@PositionStyle(CardFrameRegistry.DefX, CardFrameRegistry.DefY,
+                                       CardFrameRegistry.DefW, CardFrameRegistry.DefH)">
+                @Card.Defense
+            </div>
+        }
+    </div>
+}
+else
+{
+    <img src="@CardImage.Url(ModContext.ImageUrlTemplate, Card.CardId)"
+         alt="@Card.Name"
+         loading="lazy"
+         class="@ImgClass"
+         style="@(Fill
+                  ? $"width:100%; aspect-ratio:271/386; object-fit:contain; display:block;{ExtraStyle}"
+                  : $"width:{WidthPx}px; aspect-ratio:271/386; object-fit:contain; display:block; border-radius:{Math.Max(2, WidthPx / 50)}px;{ExtraStyle}")" />
+}
+
+@code {
+    [Parameter, EditorRequired] public Card Card { get; set; } = default!;
+    [Parameter] public int     WidthPx    { get; set; } = 156;
+    [Parameter] public bool    Fill       { get; set; }
+    [Parameter] public string  ExtraStyle { get; set; } = "";
+    [Parameter] public string  ImgClass   { get; set; } = "";
+
+    /// <summary>InvariantCulture pra formatação numérica em CSS.
+    /// CRÍTICO: em pt-BR (e várias outras), <c>0.5.ToString("F2")</c>
+    /// produz <c>"0,50"</c> com vírgula — CSS rejeita a regra inteira,
+    /// e o elemento perde <c>position:absolute</c>, vazando pra fora
+    /// do container. Bug observado com estrelas escapando do frame.</summary>
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// Linha de estrelas em <see cref="CardFrameRegistry.StY"/>.
+    ///
+    /// Posição X: depende do MOD.
+    /// - MODs com <c>StX</c> dentro do canvas (FM-US tem 119): tratamos
+    ///   StX+StarW como o canto direito da última estrela e elas crescem
+    ///   pra esquerda.
+    /// - MODs onde o byte do SLUS extrapola o canvas (TLM tem 196 — é
+    ///   na verdade o operando de uma instrução MIPS, não um pixel
+    ///   coord): caímos num fallback que <strong>centraliza a linha de
+    ///   estrelas embaixo do art window</strong>. É o que o lab faz e
+    ///   bate com o visual do jogo original — estrelas centradas sobre
+    ///   o monstro.
+    /// </summary>
+    private static string StarsStyle(int level)
+    {
+        int totalWidth = level * CardFrameRegistry.StarW;
+
+        int leftPx;
+        if (CardFrameRegistry.StX <= 0
+            || CardFrameRegistry.StX > CardFrameRegistry.FrameW)
+        {
+            int artCenter = CardFrameRegistry.ArtX + CardFrameRegistry.ArtW / 2;
+            leftPx = artCenter - totalWidth / 2;
+        }
+        else
+        {
+            int rightEdge = CardFrameRegistry.StX + CardFrameRegistry.StarW;
+            leftPx = rightEdge - totalWidth;
+        }
+
+        double leftPct  = (double)leftPx / CardFrameRegistry.FrameW * 100;
+        double topPct   = (double)CardFrameRegistry.StY / CardFrameRegistry.FrameH * 100;
+        double widthPct = (double)totalWidth / CardFrameRegistry.FrameW * 100;
+        double hPct     = (double)CardFrameRegistry.StarH / CardFrameRegistry.FrameH * 100;
+        return string.Format(Inv,
+            "position:absolute; left:{0:F2}%; top:{1:F2}%; width:{2:F2}%; height:{3:F2}%; display:flex; gap:0;",
+            leftPct, topPct, widthPct, hPct);
+    }
+
+    /// <summary>Converte um retângulo em coordenadas de canvas (144×200)
+    /// pra style absoluto em %, escalando junto com o tamanho final.</summary>
+    private static string PositionStyle(int x, int y, int w, int h)
+    {
+        double fx = (double)x / CardFrameRegistry.FrameW * 100;
+        double fy = (double)y / CardFrameRegistry.FrameH * 100;
+        double fw = (double)w / CardFrameRegistry.FrameW * 100;
+        double fh = (double)h / CardFrameRegistry.FrameH * 100;
+        return string.Format(Inv,
+            "position:absolute; left:{0:F2}%; top:{1:F2}%; width:{2:F2}%; height:{3:F2}%;",
+            fx, fy, fw, fh);
+    }
+}

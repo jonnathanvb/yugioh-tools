@@ -34,8 +34,20 @@ public static class MauiProgram
         builder.Services.AddSingleton<yugiho_tools.Application.Services.AppSettings>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.CurrentModContext>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.ModCatalogService>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.LocalizationService>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.FavoritesService>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.LoadedRomCache>();
+        // Extração e cache em disco do MOD (data.json em MOD/{slug}/).
+        builder.Services.AddSingleton<yugiho_tools.Infrastructure.Storage.ExtractedDataRepository>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.ExtractedDataLoader>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.ModExtractor>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.LabJsonImporter>();
+        builder.Services.AddSingleton<yugiho_tools.Application.Services.AnthropicTranslationService>();
 
-        builder.Services.AddScoped<LoadRomDataUseCase>();
+        // LoadRomDataUseCase precisa ser singleton porque o LoadedRomCache
+        // (também singleton) injeta dele. UseCase só depende de IRomParser
+        // (singleton), então não há estado de request.
+        builder.Services.AddSingleton<LoadRomDataUseCase>();
         builder.Services.AddScoped<GetFusionsFromHandUseCase>();
         builder.Services.AddScoped<DetectHandFromScreenUseCase>();
         builder.Services.AddScoped<RegisterModUseCase>();

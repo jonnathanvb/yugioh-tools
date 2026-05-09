@@ -3,6 +3,7 @@
 @using Color = MudBlazor.Color
 @using Size = MudBlazor.Size
 @inject AppSettings Cfg
+@inject LocalizationService L
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @implements IDisposable
@@ -15,16 +16,41 @@
                  Style="color:#c8a415; font-size:2rem;" />
         <div>
             <MudText Typo="Typo.overline"
-                     Style="color:#888; letter-spacing:2px;">PREFERÊNCIAS</MudText>
+                     Style="color:#888; letter-spacing:2px;">@L.T("settings.subtitle")</MudText>
             <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
-                Configurações
+                @L.T("settings.title")
             </MudText>
         </div>
     </div>
 
     <MudGrid Spacing="3">
 
-        <!-- ─── Catálogo ─────────────────────────────────────────── -->
+        <!-- ─── Linha 1: Idioma | Catálogo ───────────────────────── -->
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Language"
+                             Class="mr-1" Size="Size.Small" />
+                    @L.T("settings.language")
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudSelect T="string" Value="_language"
+                           ValueChanged="OnLanguageChanged"
+                           Variant="Variant.Outlined" Dense="true"
+                           HelperText="@L.T("settings.languageHelp")">
+                    @foreach (var lang in L.SupportedLanguages)
+                    {
+                        <MudSelectItem T="string" Value="@lang">
+                            @LocalizationService.DisplayName(lang)
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+            </MudPaper>
+        </MudItem>
+
         <MudItem xs="12" md="6">
             <MudPaper Class="pa-4 h-100" Elevation="3"
                       Style="background:#141428; border:1px solid #2a2a6e;">
@@ -32,21 +58,77 @@
                          Class="mb-2">
                     <MudIcon Icon="@Icons.Material.Filled.GridView"
                              Class="mr-1" Size="Size.Small" />
-                    Catálogo de cartas
+                    @L.T("settings.catalogTitle")
                 </MudText>
                 <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
                 <MudNumericField T="int"
                                  Value="@_maxGridCards"
                                  ValueChanged="@OnMaxGridCardsChanged"
-                                 Label="Quantidade máxima de cartas visíveis"
+                                 Label="@L.T("settings.maxCards")"
                                  Variant="Variant.Outlined"
                                  Min="1" Max="722" Step="10"
-                                 HelperText="@($"Padrão: {AppSettings.DefaultMaxGridCards}. Limita a primeira leva exibida no grid.")" />
+                                 HelperText="@L.T("settings.maxCardsHelp", AppSettings.DefaultMaxGridCards)" />
             </MudPaper>
         </MudItem>
 
-        <!-- ─── Atalho ─────────────────────────────────────────── -->
+        <!-- ─── Linha 2: Imagens das cartas (largura cheia) ──────── -->
+        <MudItem xs="12">
+            <MudPaper Class="pa-4" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
+                         Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Image"
+                             Class="mr-1" Size="Size.Small" />
+                    @L.T("settings.imageSourceTitle")
+                </MudText>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2 d-block">
+                    @L.T("settings.imageSourceFullDesc")
+                </MudText>
+
+                <MudToggleGroup T="ImageSource"
+                                SelectionMode="SelectionMode.SingleSelection"
+                                Value="_imageSource"
+                                ValueChanged="OnImageSourceChanged"
+                                Color="Color.Secondary"
+                                CheckMark="false">
+                    <MudToggleItem Value="ImageSource.Tea">
+                        <div class="d-flex align-center gap-2">
+                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" />
+                            <div>
+                                <div style="font-weight:600;">@L.T("settings.imageSourceTea")</div>
+                                <MudText Typo="Typo.caption" Style="color:#888;">
+                                    @L.T("settings.imageSourceTeaDesc")
+                                </MudText>
+                            </div>
+                        </div>
+                    </MudToggleItem>
+                    <MudToggleItem Value="ImageSource.Mod">
+                        <div class="d-flex align-center gap-2">
+                            <MudIcon Icon="@Icons.Material.Filled.Save" Size="Size.Small" />
+                            <div>
+                                <div style="font-weight:600;">@L.T("settings.imageSourceMod")</div>
+                                <MudText Typo="Typo.caption" Style="color:#888;">
+                                    @L.T("settings.imageSourceModDesc")
+                                </MudText>
+                            </div>
+                        </div>
+                    </MudToggleItem>
+                </MudToggleGroup>
+
+                @if (_imageSource == ImageSource.Mod)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3"
+                              Style="background:#1a2a3a; border:1px solid #2a4a6e;">
+                        @L.T("settings.modeMod.alert")
+                    </MudAlert>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <!-- ─── Linha 3: Atalho | Cores das cartas ───────────────── -->
         <MudItem xs="12" md="6">
             <MudPaper Class="pa-4 h-100" Elevation="3"
                       Style="background:#141428; border:1px solid #2a2a6e;">
@@ -54,18 +136,18 @@
                          Class="mb-2">
                     <MudIcon Icon="@Icons.Material.Filled.Keyboard"
                              Class="mr-1" Size="Size.Small" />
-                    Atalho de teclado
+                    @L.T("settings.shortcutTitle")
                 </MudText>
                 <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
                 <div class="d-flex gap-2 mb-3 align-center">
                     <MudTextField T="string"
                                   Value="@_shortcutKey"
-                                  Label="Combinação de teclas"
+                                  Label="@L.T("settings.shortcutLabel")"
                                   Variant="Variant.Outlined"
                                   ReadOnly="true"
                                   Style="flex:1;"
-                                  HelperText="@(_recording ? "Pressione a combinação ou um botão do gamepad..." : "Suporta teclado (ex: Ctrl+F2) e gamepad (ex: Pad:A). Clique em Registrar.")" />
+                                  HelperText="@(_recording ? L.T("settings.shortcutHelpRecording") : L.T("settings.shortcutHelp"))" />
                     <input id="shortcut-capture-input"
                            tabindex="0"
                            style="position:absolute; left:-9999px; width:1px; height:1px;
@@ -76,44 +158,96 @@
                                OnClick="StartRecording"
                                Disabled="@_recording"
                                Style="height:56px;">
-                        @(_recording ? "Aguardando..." : "Registrar")
+                        @(_recording ? L.T("settings.shortcutWaiting") : L.T("settings.shortcutRegister"))
                     </MudButton>
                 </div>
 
                 <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
-                    Ações disparadas pelo atalho:
+                    @L.T("settings.shortcutActions")
                 </MudText>
 
                 <MudCheckBox T="bool"
                              Value="@_shortcutClearDeck"
                              ValueChanged="@OnClearDeckChanged"
                              Color="Color.Primary"
-                             Label="Limpar deck" />
+                             Label="@L.T("settings.shortcutClearDeck")" />
                 <br />
                 <MudCheckBox T="bool"
                              Value="@_shortcutScanEmulator"
                              ValueChanged="@OnScanEmulatorChanged"
                              Color="Color.Primary"
-                             Label="Escanear emulador" />
+                             Label="@L.T("settings.shortcutScan")" />
                 <br />
                 <MudCheckBox T="bool"
                              Value="@_shortcutCalculateFusions"
                              ValueChanged="@OnCalculateFusionsChanged"
                              Color="Color.Primary"
-                             Label="Calcular fusões" />
+                             Label="@L.T("settings.shortcutCalc")" />
             </MudPaper>
         </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 h-100" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;">
+                        <MudIcon Icon="@Icons.Material.Filled.Palette"
+                                 Class="mr-1" Size="Size.Small" />
+                        @L.T("settings.colorsTitle")
+                    </MudText>
+                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               OnClick="ResetDescriptionColors">
+                        @L.T("settings.colorsRestore")
+                    </MudButton>
+                </div>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-3 d-block">
+                    @L.T("settings.colorsDesc")
+                </MudText>
+
+                <div class="d-flex flex-column gap-2">
+                    @for (int i = 1; i < _descriptionColors.Length; i++)
+                    {
+                        var idx = i;
+                        <div class="d-flex align-center gap-2">
+                            <span style="@($"display:inline-block; width:20px; height:20px; " +
+                                          $"border-radius:3px; border:1px solid #2a2a6e; " +
+                                          $"background:{_descriptionColors[idx]};")"></span>
+                            <MudText Typo="Typo.caption" Style="color:#888; min-width:42px;">
+                                #@idx
+                            </MudText>
+                            <MudTextField T="string"
+                                          Value="@_descriptionColors[idx]"
+                                          ValueChanged="@(v => OnDescriptionColorChanged(idx, v))"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense"
+                                          Style="flex:1; max-width:160px;" />
+                        </div>
+                    }
+                </div>
+
+                <MudText Typo="Typo.caption" Style="color:#666; font-style:italic;"
+                         Class="mt-3 d-block">
+                    Formato hexadecimal: <code>#RRGGBB</code>.
+                </MudText>
+            </MudPaper>
+        </MudItem>
+
     </MudGrid>
 
 </MudContainer>
 
 @code {
-    private int    _maxGridCards;
-    private string _shortcutKey = "";
-    private bool   _shortcutClearDeck;
-    private bool   _shortcutScanEmulator;
-    private bool   _shortcutCalculateFusions;
-    private bool   _recording;
+    private int         _maxGridCards;
+    private string      _shortcutKey = "";
+    private bool        _shortcutClearDeck;
+    private bool        _shortcutScanEmulator;
+    private bool        _shortcutCalculateFusions;
+    private bool        _recording;
+    private ImageSource _imageSource;
+    private string      _language = "pt";
+    private string[]    _descriptionColors = AppSettings.DefaultDescriptionColors;
 
     private DotNetObjectReference<Settings>? _selfRef;
 
@@ -124,6 +258,52 @@
         _shortcutClearDeck        = Cfg.ShortcutClearDeck;
         _shortcutScanEmulator     = Cfg.ShortcutScanEmulator;
         _shortcutCalculateFusions = Cfg.ShortcutCalculateFusions;
+        _imageSource              = Cfg.ImageSource;
+        _language                 = L.Language;
+        _descriptionColors        = Cfg.DescriptionColors;
+        L.Changed += OnLocaleChanged;
+    }
+
+    private void OnDescriptionColorChanged(int idx, string value)
+    {
+        if (idx < 0 || idx >= _descriptionColors.Length) return;
+        // Aceita o input parcial enquanto digita pra não perder foco; valida
+        // só quando vira um hex completo. Se ainda não estiver válido, mantém
+        // o valor visualmente mas não persiste.
+        _descriptionColors[idx] = value ?? "";
+        if (IsValidHex(value))
+        {
+            Cfg.DescriptionColors = _descriptionColors;
+        }
+    }
+
+    private void ResetDescriptionColors()
+    {
+        _descriptionColors = (string[])AppSettings.DefaultDescriptionColors.Clone();
+        Cfg.DescriptionColors = _descriptionColors;
+        Snackbar.Add(L.T("settings.colorsRestored"), Severity.Success);
+    }
+
+    private static bool IsValidHex(string? s) =>
+        !string.IsNullOrEmpty(s) && s.Length == 7 && s[0] == '#'
+        && s.AsSpan(1).IndexOfAnyExcept(
+            "0123456789abcdefABCDEF".AsSpan()) == -1;
+
+    private void OnLocaleChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnLanguageChanged(string lang)
+    {
+        _language  = lang;
+        L.Language = lang;
+    }
+
+    private void OnImageSourceChanged(ImageSource v)
+    {
+        _imageSource    = v;
+        Cfg.ImageSource = v;
+        Snackbar.Add(
+            L.T(v == ImageSource.Mod ? "imageSource.changedToMod" : "imageSource.changedToTea"),
+            Severity.Success);
     }
 
     private void OnMaxGridCardsChanged(int v)
@@ -150,9 +330,13 @@
         _shortcutKey      = combo;
         Cfg.ShortcutKey   = combo;
         _recording        = false;
-        Snackbar.Add($"Atalho registrado: {combo}", Severity.Success);
+        Snackbar.Add(L.T("settings.shortcutRegistered", combo), Severity.Success);
         InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose() => _selfRef?.Dispose();
+    public void Dispose()
+    {
+        L.Changed -= OnLocaleChanged;
+        _selfRef?.Dispose();
+    }
 }

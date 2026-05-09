@@ -1,0 +1,135 @@
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+@inject LocalizationService L
+@inject CurrentModContext   ModContext
+
+<MudDialog Style="background:#0d0d1a;">
+    <DialogContent>
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" sm="5">
+                <MudTextField T="string"
+                              Value="@_search"
+                              ValueChanged="@(v => { _search = v ?? ""; })"
+                              Immediate="true"
+                              Placeholder="@L.T("favorites.picker.searchPlaceholder")"
+                              Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Clearable="true" />
+            </MudItem>
+            <MudItem xs="6" sm="4">
+                <CategoryFilterSelect Kind="CategoryIconLabel.CategoryKind.Type"
+                                      Label="@L.T("common.type")"
+                                      Margin="Margin.Dense"
+                                      Value="_filterType"
+                                      ValueChanged="@(v => _filterType = v)" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudSelect T="bool" Value="_sortByAtkDesc" ValueChanged="@(v => _sortByAtkDesc = v)"
+                           Label="@L.T("common.sortBy")"
+                           Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="bool" Value="true">ATK ↓</MudSelectItem>
+                    <MudSelectItem T="bool" Value="false">ATK ↑</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
+            @($"{Filtered().Count} / {AllCards.Count}")
+        </MudText>
+
+        <div class="card-grid"
+             style="--tile-min:120px; --tile-max:170px; max-height:55vh; overflow:auto;">
+            @foreach (var c in Filtered().Take(300))
+            {
+                var card = c;
+                var inList   = AlreadyInList.Contains(card.CardId);
+                var selected = _picked.Contains(card.CardId);
+                var disabled = inList;
+                <div class="card-tile @(selected ? "selected" : "")"
+                     style="@(disabled
+                              ? "opacity:0.45; cursor:not-allowed;"
+                              : "cursor:pointer;")"
+                     @onclick="@(() => Toggle(card))"
+                     title="@card.GetTitle()">
+                    <CardCover Card="@card" Fill="true" ImgClass="card-tile-img" />
+                    <MudText Typo="Typo.caption"
+                             Style="color:#cfcfe0; font-size:11px; text-align:center;
+                                    margin-top:4px; white-space:nowrap;
+                                    overflow:hidden; text-overflow:ellipsis;">
+                        @card.Name
+                    </MudText>
+                    <MudText Typo="Typo.caption"
+                             Style="color:#888; font-size:10px; text-align:center;">
+                        ATK @card.Attack · DEF @card.Defense
+                    </MudText>
+                    @if (inList)
+                    {
+                        <div style="position:absolute; top:4px; right:4px;
+                                    background:rgba(76,175,80,0.85); color:#fff;
+                                    font-size:10px; padding:2px 6px; border-radius:10px;">
+                            ✓ @L.T("favorites.picker.alreadyAdded")
+                        </div>
+                    }
+                    else if (selected)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                 Class="card-tile-check" />
+                    }
+                </div>
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L.T("common.cancel")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.AddCircle"
+                   OnClick="Confirm" Disabled="@(_picked.Count == 0)">
+            @L.T("favorites.picker.addSelected", _picked.Count)
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<Card> AllCards    { get; set; } = [];
+    [Parameter, EditorRequired] public HashSet<int>        AlreadyInList { get; set; } = new();
+
+    private string  _search  = "";
+    private int?    _filterType;
+    private bool    _sortByAtkDesc = true;
+    private readonly HashSet<int> _picked = new();
+
+    private List<Card> Filtered()
+    {
+        IEnumerable<Card> q = AllCards;
+
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.Trim();
+            q = q.Where(c =>
+                c.Name.Contains(s, StringComparison.OrdinalIgnoreCase)
+             || c.Description.Contains(s, StringComparison.OrdinalIgnoreCase)
+             || c.CardId.ToString().Contains(s));
+        }
+
+        if (_filterType.HasValue)
+            q = q.Where(c => c.CardType == _filterType.Value);
+
+        q = _sortByAtkDesc
+            ? q.OrderByDescending(c => c.Attack).ThenBy(c => c.Name)
+            : q.OrderBy(c => c.Attack).ThenBy(c => c.Name);
+
+        return q.ToList();
+    }
+
+    private void Toggle(Card c)
+    {
+        if (AlreadyInList.Contains(c.CardId)) return;
+        if (!_picked.Add(c.CardId)) _picked.Remove(c.CardId);
+    }
+
+    private void Confirm() => MudDialog.Close(DialogResult.Ok(_picked));
+    private void Cancel()  => MudDialog.Cancel();
+}

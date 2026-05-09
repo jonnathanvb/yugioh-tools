@@ -1,0 +1,177 @@
+@page "/duelists"
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Application.UseCases
+@using yugiho_tools.Domain.Entities
+@inject LoadedRomCache       RomCache
+@inject CurrentModContext    ModContext
+@inject IDialogService       DialogService
+@inject LocalizationService  L
+@inject AppSettings          Cfg
+@inject NavigationManager    Nav
+@implements IDisposable
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6 px-4"
+              Style=" margin:0 auto;">
+
+    <div class="d-flex align-center mb-4 gap-2">
+        <MudIcon Icon="@Icons.Material.Filled.Group"
+                 Style="color:#c8a415; font-size:2rem;" />
+        <div>
+            <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                @L.T("menu.duelists")
+            </MudText>
+            <MudText Typo="Typo.caption" Style="color:#888;">
+                @L.T("duelists.intro")
+            </MudText>
+        </div>
+    </div>
+
+    @if (RomCache.Current is null)
+    {
+        <MudAlert Severity="Severity.Warning"
+                  Style="background:#2a2010; border:1px solid #c8a415;">
+            @L.T("duelists.noMod")
+        </MudAlert>
+    }
+    else
+    {
+        var duelists = RomCache.Current.Duelists;
+        if (duelists.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info">
+                @L.T("duelists.empty")
+            </MudAlert>
+        }
+        else
+        {
+            @* Tabela em vez de grid de cards: melhor pra escanear vários
+               duelistas de uma vez, comparar tamanhos de deck e número
+               de drops por pool. Linha clicável vai pro modal completo. *@
+            <MudTable T="Duelist" Items="@duelists"
+                      Hover="true"
+                      Dense="true"
+                      Striped="true"
+                      Bordered="false"
+                      Class="duelist-table"
+                      Style="background:#141428; border:1px solid #2a2a6e;"
+                      OnRowClick="@(args => OpenDuelist(args.Item!))"
+                      RowStyle="cursor:pointer;">
+                @* Cores dos headers de pool seguem a paleta da descrição
+                   da carta (config), pra ficar consistente com a coloração
+                   |N| do texto: índice 6 = S/A POW, 8 = BCD POW, 2 = S/A TEC. *@
+                <HeaderContent>
+                    <MudTh Style="width:50px; color:#c8a415; letter-spacing:1px;">#</MudTh>
+                    <MudTh Style="width:60px; color:#c8a415; letter-spacing:1px;">@L.T("duelists.col.image")</MudTh>
+                    <MudTh Style="color:#c8a415; letter-spacing:1px;">@L.T("duelists.col.name")</MudTh>
+                    <MudTh Style="text-align:right; color:#c8a415; letter-spacing:1px;"
+                           title="@L.T("duelists.col.deckCardsTooltip")">
+                        @L.T("duelists.col.deckCards")
+                    </MudTh>
+                    <MudTh Style="@($"text-align:right; color:{ColorIdx(6)}; letter-spacing:1px;")">
+                        SA - POW
+                    </MudTh>
+                    <MudTh Style="@($"text-align:right; color:{ColorIdx(8)}; letter-spacing:1px;")">
+                        BCD
+                    </MudTh>
+                    <MudTh Style="@($"text-align:right; color:{ColorIdx(2)}; letter-spacing:1px;")">
+                        SA - TEC
+                    </MudTh>
+                </HeaderContent>
+                <RowTemplate Context="d">
+                    @{
+                        var portraitUrl = ExtractedAssets.GetDuelist(d.Id);
+                        int deckCount = CountNonZero(d.Deck);
+                        int sapCount  = CountNonZero(d.SaPow);
+                        int bcdCount  = CountNonZero(d.BcdPow);
+                        int satCount  = CountNonZero(d.SaTec);
+                    }
+                    <MudTd Style="color:#888;">@d.Id</MudTd>
+                    <MudTd>
+                        <div style="width:48px; height:48px; background:#0a0a18;
+                                    border:1px solid #1e1e4a; border-radius:4px;
+                                    overflow:hidden; display:flex;
+                                    align-items:center; justify-content:center;">
+                            @if (portraitUrl is not null)
+                            {
+                                <img src="@portraitUrl" alt="@d.Name"
+                                     style="width:100%; height:100%; object-fit:contain;
+                                            image-rendering:pixelated;" />
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Person"
+                                         Style="color:#666;" />
+                            }
+                        </div>
+                    </MudTd>
+                    <MudTd Style="color:#c8a415; font-weight:600;">@d.Name</MudTd>
+                    <MudTd Style="text-align:right; color:#cfcfe0;">@deckCount</MudTd>
+                    <MudTd Style="@($"text-align:right; color:{PoolValueColor(sapCount, 6)}; font-weight:600;")">@sapCount</MudTd>
+                    <MudTd Style="@($"text-align:right; color:{PoolValueColor(bcdCount, 8)}; font-weight:600;")">@bcdCount</MudTd>
+                    <MudTd Style="@($"text-align:right; color:{PoolValueColor(satCount, 2)}; font-weight:600;")">@satCount</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    }
+</MudContainer>
+
+@code {
+    protected override void OnInitialized()
+    {
+        RomCache.Changed += OnChanged;
+        L.Changed        += OnChanged;
+        Cfg.Changed      += OnChanged;
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        RomCache.Changed -= OnChanged;
+        L.Changed        -= OnChanged;
+        Cfg.Changed      -= OnChanged;
+    }
+
+    /// <summary>Conta cartas distintas com peso > 0 — útil pra ter uma
+    /// medida rápida do tamanho do deck / pool de drops sem precisar
+    /// abrir o modal.</summary>
+    private static int CountNonZero(ushort[]? arr)
+    {
+        if (arr is null) return 0;
+        int n = 0;
+        for (int i = 0; i < arr.Length; i++)
+            if (arr[i] > 0) n++;
+        return n;
+    }
+
+    /// <summary>Lê uma cor da paleta de descrição configurada pelo
+    /// usuário. Default fallback se o índice estiver fora do array.</summary>
+    private string ColorIdx(int idx)
+    {
+        var palette = Cfg.DescriptionColors;
+        return idx >= 0 && idx < palette.Length ? palette[idx] : palette[0];
+    }
+
+    /// <summary>Cor da paleta quando há drops, cinza apagado quando o
+    /// pool está vazio — destaca de relance quem tem drops mapeados.</summary>
+    private string PoolValueColor(int count, int paletteIdx) =>
+        count > 0 ? ColorIdx(paletteIdx) : "#555";
+
+    private async Task OpenDuelist(Duelist d)
+    {
+        if (RomCache.Current is null) return;
+        var parameters = new DialogParameters
+        {
+            ["Duelist"] = d,
+            ["AllCards"] = RomCache.Current.Cards,
+            ["RomData"]  = RomCache.Current,
+        };
+        var options = new DialogOptions
+        {
+            CloseButton = true, MaxWidth = MaxWidth.ExtraLarge,
+            FullWidth = true, BackdropClick = true,
+        };
+        await DialogService.ShowAsync<DuelistDetailDialog>(d.Name, parameters, options);
+    }
+}

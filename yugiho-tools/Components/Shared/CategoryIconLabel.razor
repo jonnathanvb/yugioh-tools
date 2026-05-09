@@ -1,0 +1,46 @@
+@using yugiho_tools.Application.Helpers
+
+@*
+   Linha "{ícone} {nome}" pra exibir Tipo ou Atributo de forma uniforme.
+   Decide a fonte do ícone pelo Kind; se o sprite não foi extraído pro
+   MOD ativo, omite o ícone (sem espaço fantasma) — útil quando o
+   usuário ainda não cadastrou um MOD ou está em uma tela sem extração.
+*@
+
+<span class="d-inline-flex align-center" style="@($"gap:{Gap}px; vertical-align:middle;")">
+    @if (Url is not null)
+    {
+        <img src="@Url" alt="@Name"
+             style="@($"width:{Size}px; height:{Size}px; object-fit:contain; " +
+                     $"image-rendering:pixelated; flex-shrink:0;")" />
+    }
+    @if (ShowName)
+    {
+        <span>@Name</span>
+    }
+</span>
+
+@code {
+    public enum CategoryKind { Type, Attribute }
+
+    [Parameter, EditorRequired] public CategoryKind Kind { get; set; }
+    [Parameter, EditorRequired] public int Id { get; set; }
+
+    /// <summary>Tamanho do ícone em px. Default 18 — combina com inputs e
+    /// linhas de tabela; subir para 24+ pra cabeçalhos de detalhe.</summary>
+    [Parameter] public int Size { get; set; } = 18;
+
+    /// <summary>Espaço entre ícone e nome em px.</summary>
+    [Parameter] public int Gap { get; set; } = 6;
+
+    /// <summary>False = só o ícone (uso compacto em tabelas/chips).</summary>
+    [Parameter] public bool ShowName { get; set; } = true;
+
+    private string Name => Kind == CategoryKind.Type
+        ? CardMetadata.TypeName(Id)
+        : CardMetadata.AttributeName(Id);
+
+    private string? Url => Kind == CategoryKind.Type
+        ? ExtractedAssets.GetType(Id)
+        : ExtractedAssets.GetAttribute(Id);
+}

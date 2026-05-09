@@ -1,0 +1,171 @@
+@page "/favorites"
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+@inject FavoritesService   Favs
+@inject LocalizationService L
+@inject CurrentModContext  ModContext
+@inject NavigationManager  Nav
+@inject IDialogService     DialogService
+@inject ISnackbar          Snackbar
+@implements IDisposable
+
+<MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
+              Style="max-width:80%; margin-left:auto; margin-right:auto;">
+
+    <div class="d-flex align-center mb-4 gap-2">
+        <MudIcon Icon="@Icons.Material.Filled.Star"
+                 Style="color:#c8a415; font-size:2rem;" />
+        <div>
+            <MudText Typo="Typo.overline"
+                     Style="color:#888; letter-spacing:2px;">
+                @L.T("favorites.subtitle")
+            </MudText>
+            <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                @L.T("favorites.title")
+            </MudText>
+        </div>
+        <MudSpacer />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="OpenNewListDialog"
+                   Disabled="@(ModContext.Current is null)">
+            @L.T("favorites.newList")
+        </MudButton>
+    </div>
+
+    @if (ModContext.Current is null)
+    {
+        <MudAlert Severity="Severity.Warning"
+                  Style="background:#2a2010; border:1px solid #c8a415;">
+            @L.T("favorites.noActiveMod")
+        </MudAlert>
+    }
+    else if (_lists.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined"
+                  Style="background:#15152e; border-color:#2a2a6e;">
+            @L.T("favorites.empty")
+        </MudAlert>
+    }
+    else
+    {
+        <MudGrid Spacing="3">
+            @foreach (var list in _lists)
+            {
+                var listRef = list;
+                <MudItem xs="12" sm="6" md="4">
+                    <MudPaper Class="pa-4" Elevation="3"
+                              Style="background:#141428; border:1px solid #2a2a6e;
+                                     min-height:180px; display:flex; flex-direction:column;">
+                        <div class="d-flex align-center gap-2 mb-2">
+                            <MudIcon Icon="@Icons.Material.Filled.Bookmark"
+                                     Style="color:#c8a415;" />
+                            <MudText Typo="Typo.h6"
+                                     Style="color:#c8a415; font-weight:700; flex:1;
+                                            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                                     title="@listRef.Name">
+                                @listRef.Name
+                            </MudText>
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                     AnchorOrigin="Origin.BottomRight"
+                                     TransformOrigin="Origin.TopRight" Size="Size.Small" Dense="true">
+                                <MudMenuItem OnClick="@(() => OpenRenameDialog(listRef))"
+                                             Icon="@Icons.Material.Filled.Edit">
+                                    @L.T("common.edit")
+                                </MudMenuItem>
+                                <MudMenuItem OnClick="@(() => DeleteList(listRef))"
+                                             Icon="@Icons.Material.Filled.Delete"
+                                             IconColor="Color.Error">
+                                    @L.T("common.delete")
+                                </MudMenuItem>
+                            </MudMenu>
+                        </div>
+
+                        <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
+                            @L.T("favorites.cardCount", listRef.Cards.Count)
+                        </MudText>
+
+                        <MudSpacer />
+
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                   FullWidth="true"
+                                   StartIcon="@Icons.Material.Filled.OpenInNew"
+                                   OnClick="@(() => Nav.NavigateTo($"/favorites/{listRef.Id}"))">
+                            @L.T("favorites.openList")
+                        </MudButton>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private List<FavoriteList> _lists = new();
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        Favs.Changed       += OnFavsChanged;
+        L.Changed          += OnLocaleChanged;
+        ModContext.Changed += OnModChanged;
+    }
+
+    private void OnFavsChanged()   => InvokeAsync(() => { Refresh(); StateHasChanged(); });
+    private void OnLocaleChanged() => InvokeAsync(StateHasChanged);
+    private void OnModChanged()    => InvokeAsync(() => { Refresh(); StateHasChanged(); });
+
+    private void Refresh()
+    {
+        var slug = ModContext.CurrentSlug;
+        _lists = Favs.GetForMod(slug).OrderByDescending(l => l.CreatedAt).ToList();
+    }
+
+    private async Task OpenNewListDialog()
+    {
+        if (ModContext.CurrentSlug is not { } slug) return;
+        var name = await PromptText(L.T("favorites.newList"), L.T("favorites.newListPlaceholder"));
+        if (string.IsNullOrWhiteSpace(name)) return;
+        Favs.Create(name, slug);
+    }
+
+    private async Task OpenRenameDialog(FavoriteList list)
+    {
+        var name = await PromptText(L.T("favorites.renameList"),
+                                    L.T("favorites.newListPlaceholder"),
+                                    list.Name);
+        if (string.IsNullOrWhiteSpace(name) || name == list.Name) return;
+        Favs.Rename(list.Id, name);
+    }
+
+    private async Task DeleteList(FavoriteList list)
+    {
+        bool? ok = await DialogService.ShowMessageBox(
+            title: L.T("common.confirm"),
+            markupMessage: new MarkupString(L.T("favorites.deleteListConfirm", list.Name)),
+            yesText: L.T("common.delete"),
+            cancelText: L.T("common.cancel"));
+        if (ok == true) Favs.Delete(list.Id);
+    }
+
+    private async Task<string?> PromptText(string title, string placeholder, string initial = "")
+    {
+        var parameters = new DialogParameters
+        {
+            ["Title"]       = title,
+            ["Placeholder"] = placeholder,
+            ["Initial"]     = initial,
+        };
+        var dlg = await DialogService.ShowAsync<TextPromptDialog>(title, parameters,
+            new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        var res = await dlg.Result;
+        return res?.Data as string;
+    }
+
+    public void Dispose()
+    {
+        Favs.Changed       -= OnFavsChanged;
+        L.Changed          -= OnLocaleChanged;
+        ModContext.Changed -= OnModChanged;
+    }
+}
