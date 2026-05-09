@@ -1,0 +1,61 @@
+{
+  "_comment": "Template de JSON externo para registro de MOD. Compatível com formato TODOS os IDs (id, equips, fusions, rituals, dropCardId) são 1-based — ex: 1 = Blue-Eyes. Drops type: 'deck' | 'pow' (S/A POW) | 'bcd' (BCD POW) | 'tec' (S/A TEC). DropRate é peso (0-2048 tipicamente). Fusions: $1=material1, $2=material2, $3=resultado. Rituals: { magicCard, card1, card2, card3, result } — fórmula é magicCard + card1 + card2 + card3 = result. CodeStars: $1=password TCG, $2=custo em star chips. Limited: 0=livre, 1=limit, 2=semi, 3=sem restrição. IsRitual/IsFusion: flags. Names podem ter prefixo '|<dígito>' de cor (ex: '|6Blue-Eyes White Dragon') que é descartado.",
+  "cards": [
+    {
+      "id": 1,
+      "name": "Blue-Eyes White Dragon",
+      "description": "This legendary dragon is a powerful engine of destruction.",
+      "atk": 3000,
+      "def": 2500,
+      "lvl": 8,
+      "type": 1,
+      "attributeId": 4,
+      "guardian1": 7,
+      "guardian2": 6,
+      "equips": [277, 322],
+      "fusions": [
+        { "$1": 2, "$2": 3, "$3": 1 }
+      ],
+      "isRitual": false,
+      "isFusion": true,
+      "limited": 0,
+      "codeStars": { "$1": "89631139", "$2": 999999 },
+      "rituals": []
+    },
+    {
+      "id": 2,
+      "name": "Mystical Elf",
+      "description": "A delicate elf that lacks offense, but has a terrific defense backed by mystical power.",
+      "atk": 800,
+      "def": 2000,
+      "lvl": 4,
+      "type": 14,
+      "attributeId": 8,
+      "guardian1": 1,
+      "guardian2": 2,
+      "equips": [],
+      "fusions": [],
+      "isRitual": true,
+      "isFusion": false,
+      "limited": 0,
+      "codeStars": { "$1": "15025844", "$2": 1500 },
+      "rituals": [
+        { "magicCard": 695, "card1": 1, "card2": 1, "card3": 1, "result": 706 }
+      ]
+    }
+  ],
+  "duelists": [
+    {
+      "id": 1,
+      "name": "Simon Muran",
+      "uniqueDropId": 0,
+      "drops": [
+        { "cardId": 1,  "dropRate": 2048, "duelistId": 1, "type": "deck" },
+        { "cardId": 2,  "dropRate": 1024, "duelistId": 1, "type": "deck" },
+        { "cardId": 1,  "dropRate": 512,  "duelistId": 1, "type": "pow"  },
+        { "cardId": 2,  "dropRate": 256,  "duelistId": 1, "type": "bcd"  },
+        { "cardId": 1,  "dropRate": 128,  "duelistId": 1, "type": "tec"  }
+      ]
+    }
+  ]
+}

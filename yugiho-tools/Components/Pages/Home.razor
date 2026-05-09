@@ -6,15 +6,14 @@
 
 @using Color = MudBlazor.Color
 @using Size = MudBlazor.Size
-@inject LoadRomDataUseCase LoadRomUseCase
 @inject GetFusionsFromHandUseCase GetFusionsUseCase
 @inject DetectHandFromScreenUseCase DetectHandUseCase
 @inject ListModsUseCase ListModsUseCase
-@inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
 @inject yugiho_tools.Domain.Interfaces.IScreenCapture ScreenCapture
 @inject yugiho_tools.Domain.Interfaces.IGlobalShortcutService Shortcuts
 @inject yugiho_tools.Application.Services.AppSettings Settings
-@inject yugiho_tools.Application.Services.CurrentModContext ModContext
+@inject yugiho_tools.Application.Services.LoadedRomCache RomCache
+@inject yugiho_tools.Application.Services.LocalizationService L
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Nav
@@ -38,67 +37,24 @@
         </MudAlert>
     }
 
-    <!-- ─── Top row: Mod selector | Emulator detection ────────────────── -->
+    <!-- ─── Top row: Emulator detection ───────────────────────────────── -->
     <MudGrid Spacing="3" Class="mb-4">
-        <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4 h-100" Elevation="3"
-                      Style="background:#141428; border:1px solid #2a2a6e;">
-                <div class="d-flex align-center mb-2 gap-2">
-                    <MudIcon Icon="@Icons.Material.Filled.LibraryBooks"
-                             Style="color:#c8a415;" />
-                    <MudText Typo="Typo.overline"
-                             Style="color:#888; letter-spacing:2px;">MOD</MudText>
-                </div>
-                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
-                <MudSelect T="string" Value="_selectedSlug"
-                           ValueChanged="OnModChanged"
-                           Label="ROM cadastrada"
-                           Variant="Variant.Outlined"
-                           Disabled="@(_mods.Count == 0 || _isLoading)"
-                           AnchorOrigin="Origin.BottomLeft">
-                    @foreach (var m in _mods)
-                    {
-                        <MudSelectItem T="string" Value="@m.Slug">
-                            @m.Name <span style="color:#666;">— MOD/@m.Slug</span>
-                        </MudSelectItem>
-                    }
-                </MudSelect>
-
-                <div class="d-flex justify-end mt-2">
-                    <MudButton Variant="Variant.Text" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.Settings"
-                               OnClick="@(() => Nav.NavigateTo("/mods"))">
-                        Gerenciar MODs
-                    </MudButton>
-                </div>
-
-                @if (_isLoading)
-                {
-                    <MudProgressLinear Value="_loadProgress" Color="Color.Primary"
-                                       Rounded="true" Class="mt-3" />
-                    <MudText Typo="Typo.caption" Style="color:#c8a415;" Class="mt-1">
-                        @_loadingMessage (@_loadProgress%)
-                    </MudText>
-                }
-            </MudPaper>
-        </MudItem>
-
-        <MudItem xs="12" md="6">
+        <MudItem xs="12">
             <MudPaper Class="pa-4 h-100" Elevation="3"
                       Style="background:#141428; border:1px solid #2a2a6e;">
                 <div class="d-flex align-center mb-2 gap-2">
                     <MudIcon Icon="@Icons.Material.Filled.Visibility"
                              Style="color:#c8a415;" />
                     <MudText Typo="Typo.overline"
-                             Style="color:#888; letter-spacing:2px;">DETECÇÃO PELO EMULADOR</MudText>
+                             Style="color:#888; letter-spacing:2px;">@L.T("home.detectFromEmulator")</MudText>
                 </div>
                 <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
                 <MudGrid>
                     <MudItem xs="9">
                         <MudSelect T="string" @bind-Value="_selectedWindow"
-                                   Label="Janela do emulador (ePSXe)"
+                                   Label="@L.T("home.windowLabel")"
                                    Variant="Variant.Outlined"
                                    Disabled="@(_cards is null)"
                                    AnchorOrigin="Origin.BottomLeft">
@@ -109,7 +65,7 @@
                         </MudSelect>
                     </MudItem>
                     <MudItem xs="3" Class="d-flex align-center">
-                        <MudTooltip Text="Atualizar lista">
+                        <MudTooltip Text="@L.T("home.refreshList")">
                             <MudIconButton Icon="@Icons.Material.Filled.Refresh"
                                            Color="Color.Default"
                                            OnClick="RefreshWindows" />
@@ -124,7 +80,7 @@
                            Disabled="@(_cards is null || _isAutoDetecting || string.IsNullOrEmpty(_selectedWindow))"
                            Class="mt-2"
                            Style="font-weight:700; letter-spacing:1px;">
-                    @(_isAutoDetecting ? "ESCANEANDO..." : "ESCANEAR EMULADOR")
+                    @(_isAutoDetecting ? L.T("home.scanning") : L.T("home.scan"))
                 </MudButton>
                 @if (_isAutoDetecting)
                 {
@@ -144,10 +100,10 @@
                 <div class="d-flex align-center gap-3 flex-wrap">
                     <MudText Style="color:#c8a415; font-weight:700; letter-spacing:1px;">
                         <MudIcon Icon="@Icons.Material.Filled.Style" Class="mr-1" />
-                        MY DECK (@_selectedManualCards.Count)
+                        @L.T("home.myDeck") (@_selectedManualCards.Count)
                     </MudText>
 
-                    <div class="d-flex align-center gap-1" title="Zoom das cartas no MY DECK">
+                    <div class="d-flex align-center gap-1" title="@L.T("home.deckZoom")">
                         <MudIconButton Icon="@Icons.Material.Filled.Remove"
                                        Size="Size.Small"
                                        OnClick="DeckZoomOut"
@@ -169,7 +125,7 @@
                                Disabled="@(_selectedManualCards.Count == 0)"
                                StartIcon="@Icons.Material.Filled.DeleteSweep"
                                Style="font-weight:700; min-width:140px;">
-                        Limpar deck
+                        @L.T("home.clearDeck")
                     </MudButton>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                Size="Size.Large"
@@ -177,7 +133,7 @@
                                OnClick="GetFusionsManual"
                                Disabled="@(_isCalculating || _selectedManualCards.Count == 0)"
                                Style="font-weight:700; letter-spacing:1px; min-width:200px;">
-                        @(_isCalculating ? "CALCULANDO..." : "CALCULAR FUSÕES")
+                        @(_isCalculating ? L.T("home.calculating") : L.T("home.calcFusions"))
                     </MudButton>
                 </div>
             </div>
@@ -187,7 +143,7 @@
                 @if (_selectedManualCards.Count == 0)
                 {
                     <MudText Typo="Typo.caption" Style="color:#666;">
-                        Adicione cartas escaneando o emulador (acima) ou clicando nas cartas do catálogo abaixo.
+                        @L.T("home.deck.empty")
                     </MudText>
                 }
                 else
@@ -195,13 +151,26 @@
                     <div class="d-flex gap-2 flex-wrap">
                         @foreach (var c in _selectedManualCards)
                         {
-                            <div class="cart-item" @onclick="() => RemoveFromHand(c)"
-                                 title="@($"{c.Name} — clique para remover (ATK {c.Attack} / DEF {c.Defense})")">
-                                <img src="@CardImage.Url(ModContext.ImageUrlTemplate, c.CardId)"
-                                     style="@($"width:{DeckCardWidth}px; aspect-ratio:271/386; object-fit:contain; border-radius:3px;")" />
-                                <MudIcon Icon="@Icons.Material.Filled.Close"
-                                         Class="cart-close"
-                                         Size="Size.Small" />
+                            var card = c; // captura local pra closures dos botões
+                            <div class="cart-item"
+                                 title="@($"{card.Name} (ATK {card.Attack} / DEF {card.Defense})")">
+                                <CardCover Card="@card" WidthPx="@DeckCardWidth" />
+                                <div class="cart-actions">
+                                    <button type="button"
+                                            class="cart-action-btn info"
+                                            title="@L.T("home.deck.detail")"
+                                            @onclick="() => ShowCardDetails(card)"
+                                            @onclick:stopPropagation="true">
+                                        <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" />
+                                    </button>
+                                    <button type="button"
+                                            class="cart-action-btn remove"
+                                            title="@L.T("home.deck.removeFromDeck")"
+                                            @onclick="() => RemoveFromHand(card)"
+                                            @onclick:stopPropagation="true">
+                                        <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                                    </button>
+                                </div>
                             </div>
                         }
                     </div>
@@ -209,153 +178,15 @@
             </MudPaper>
         </MudPaper>
 
-        <!-- ═══════════════ CATÁLOGO (collapsible) ═══════════════ -->
-        <MudPaper Class="pa-4 mb-4" Elevation="3"
-                  Style="background:#141428; border:1px solid #2a2a6e;">
-            <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
-                <MudButton Variant="Variant.Text" Size="Size.Medium"
-                           StartIcon="@(_catalogExpanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                           OnClick="@(() => _catalogExpanded = !_catalogExpanded)"
-                           Style="color:#c8a415; font-weight:700; letter-spacing:1px;">
-                    <MudIcon Icon="@Icons.Material.Filled.GridView" Class="mr-1" />
-                    Catálogo de cartas
-                </MudButton>
-
-                <div class="d-flex align-center gap-1" title="Zoom do catálogo">
-                    <MudIconButton Icon="@Icons.Material.Filled.Remove"
-                                   Size="Size.Small"
-                                   OnClick="CatalogZoomOut"
-                                   Disabled="@(_catalogZoom <= CatalogMin)" />
-                    <MudText Style="min-width:42px; text-align:center; color:#c8a415; font-size:0.85rem;">
-                        @($"{(int)Math.Round(_catalogZoom * 100)}%")
-                    </MudText>
-                    <MudIconButton Icon="@Icons.Material.Filled.Add"
-                                   Size="Size.Small"
-                                   OnClick="CatalogZoomIn"
-                                   Disabled="@(_catalogZoom >= CatalogMax)" />
-                </div>
-            </div>
-
-            <MudCollapse Expanded="@_catalogExpanded">
-                <!-- Filters -->
-                <MudGrid Spacing="2" Class="mb-2">
-                    <MudItem xs="12" sm="6" md="4">
-                        <MudTextField T="string"
-                                      Value="@_searchTerm"
-                                      ValueChanged="@(v => { _searchTerm = v ?? ""; })"
-                                      Immediate="true"
-                                      Label="Nome, descrição ou #ID"
-                                      Variant="Variant.Outlined"
-                                      Adornment="Adornment.Start"
-                                      AdornmentIcon="@Icons.Material.Filled.Search" />
-                    </MudItem>
-                    <MudItem xs="6" sm="3" md="2">
-                        <MudSelect T="int?"
-                                   Value="_filterType"
-                                   ValueChanged="@(v => { _filterType = v; })"
-                                   ToStringFunc="@(v => v.HasValue ? CardMetadata.TypeName(v.Value) : "")"
-                                   Label="Tipo" Variant="Variant.Outlined"
-                                   Clearable="true">
-                            @foreach (var t in CardMetadata.Types)
-                            {
-                                <MudSelectItem T="int?" Value="@((int?)t.Id)">
-                                    @t.Name
-                                </MudSelectItem>
-                            }
-                        </MudSelect>
-                    </MudItem>
-                    <MudItem xs="6" sm="3" md="2">
-                        <MudSelect T="int?"
-                                   Value="_filterAttribute"
-                                   ValueChanged="@(v => { _filterAttribute = v; })"
-                                   ToStringFunc="@(v => v.HasValue ? CardMetadata.AttributeName(v.Value) : "")"
-                                   Label="Atributo" Variant="Variant.Outlined"
-                                   Clearable="true">
-                            @foreach (var a in CardMetadata.Attributes)
-                            {
-                                <MudSelectItem T="int?" Value="@((int?)a.Id)">
-                                    @a.Name
-                                </MudSelectItem>
-                            }
-                        </MudSelect>
-                    </MudItem>
-                    <MudItem xs="12" sm="6" md="4">
-                        <MudSelect T="CardSortMode" @bind-Value="_sortMode"
-                                   Label="Ordenar" Variant="Variant.Outlined">
-                            <MudSelectItem T="CardSortMode" Value="CardSortMode.Default">#ID</MudSelectItem>
-                            <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkDesc">ATK ↓</MudSelectItem>
-                            <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkAsc">ATK ↑</MudSelectItem>
-                            <MudSelectItem T="CardSortMode" Value="CardSortMode.DefDesc">DEF ↓</MudSelectItem>
-                            <MudSelectItem T="CardSortMode" Value="CardSortMode.DefAsc">DEF ↑</MudSelectItem>
-                            <MudSelectItem T="CardSortMode" Value="CardSortMode.Type">Tipo</MudSelectItem>
-                        </MudSelect>
-                    </MudItem>
-                </MudGrid>
-
-                <MudGrid Spacing="2" Class="mb-3">
-                    <MudItem xs="6" sm="3" md="2">
-                        <MudNumericField T="int?" @bind-Value="_minAtk"
-                                         Label="ATK min" Variant="Variant.Outlined"
-                                         Min="0" Step="100" Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="6" sm="3" md="2">
-                        <MudNumericField T="int?" @bind-Value="_maxAtk"
-                                         Label="ATK max" Variant="Variant.Outlined"
-                                         Min="0" Step="100" Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="6" sm="3" md="2">
-                        <MudNumericField T="int?" @bind-Value="_minDef"
-                                         Label="DEF min" Variant="Variant.Outlined"
-                                         Min="0" Step="100" Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="6" sm="3" md="2">
-                        <MudNumericField T="int?" @bind-Value="_maxDef"
-                                         Label="DEF max" Variant="Variant.Outlined"
-                                         Min="0" Step="100" Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="12" md="4" Class="d-flex align-center">
-                        <MudSwitch T="bool" @bind-Value="_onlyFusionMaterials"
-                                   Color="Color.Primary"
-                                   Label="Só cartas usadas em fusão" />
-                    </MudItem>
-                </MudGrid>
-
-                @{
-                    var filtered = FilteredCards().Take(MaxGridCards).ToList();
-                    var totalFiltered = FilteredCardsCount();
-                }
-                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
-                    @filtered.Count de @totalFiltered cartas
-                    @(totalFiltered > MaxGridCards ? $" (mostrando primeiras {MaxGridCards} — refine o filtro)" : "")
-                </MudText>
-
-                <div class="card-grid"
-                     style="@($"--tile-min:{TileMinPx}px; --tile-max:{TileMaxPx}px;")">
-                    @foreach (var c in filtered)
-                    {
-                        var selected = IsInHand(c);
-                        var card = c;
-                        <div class="card-tile @(selected ? "selected" : "")"
-                             @onclick="() => OnTileClick(card)"
-                             @onmousedown="() => StartLongPress(card)"
-                             @onmouseup="CancelLongPress"
-                             @onmouseleave="CancelLongPress"
-                             @ontouchstart="() => StartLongPress(card)"
-                             @ontouchend="CancelLongPress"
-                             @ontouchcancel="CancelLongPress"
-                             title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense} · segure 3s para detalhes")">
-                            <img src="@CardImage.Url(ModContext.ImageUrlTemplate, c.CardId)" loading="lazy"
-                                 class="card-tile-img" alt="@c.Name" />
-                            @if (selected)
-                            {
-                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
-                                         Class="card-tile-check" />
-                            }
-                        </div>
-                    }
-                </div>
-            </MudCollapse>
-        </MudPaper>
+        <!-- ═══════════════ CATÁLOGO (componente compartilhado) ═══════════════
+             Mesmo grid usado em /cards. Click adiciona/remove da mão; long-press
+             abre o detalhe. _fusionMaterialIds habilita o switch "só fusões". -->
+        <CardCatalog Cards="@(_cards ?? new List<Card>())"
+                     OnCardClick="AddToHand"
+                     HighlightSelected="IsInHand"
+                     FusionMaterialIds="_fusionMaterialIds"
+                     MaxGridCards="MaxGridCards"
+                     @bind-Expanded="_catalogExpanded" />
 
         <!-- ═══════════════ RESULTADOS DE FUSÕES ═══════════════ -->
         @if (_allSequences != null)
@@ -363,11 +194,10 @@
             <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
                 <div>
                     <MudText Typo="Typo.overline"
-                             Style="color:#888; letter-spacing:2px;">FUSÕES POSSÍVEIS</MudText>
+                             Style="color:#888; letter-spacing:2px;">@L.T("home.fusionsTitle")</MudText>
                     <MudText Typo="Typo.h5"
                              Style="color:#c8a415; font-weight:700;">
-                        @_finalCards!.Count resultado(s) finais
-                        · @_allSequences.Count caminho(s)
+                        @L.T("home.fusionsResults", _finalCards!.Count, _allSequences.Count)
                     </MudText>
                 </div>
 
@@ -498,8 +328,7 @@
                                     MaxSteps="@(_maxStepsFilter > 0 ? _maxStepsFilter : null)"
                                     LayoutMode="_layoutMode"
                                     Visibility="_visibility"
-                                    OnCardClicked="ShowCardBranches"
-                                    OnCardLongClicked="ShowCardDetails"
+                                    OnCardClicked="ShowCardDetails"
                                     OnJunctionClicked="ShowJunctionFlow" />
                 </MudPaper>
             }
@@ -510,18 +339,18 @@
 
 @code {
     private int MaxGridCards => Settings.MaxGridCards;
-    private const string PrefSelectedSlugKey = "yugiho.selectedModSlug";
 
-    // ── Mods ───────────────────────────────────────────────────────
+    // ── Mods (lista usada apenas pra checar se há algum cadastrado) ─
     private List<Mod> _mods = [];
-    private string?  _selectedSlug;
 
     // ── Loading ────────────────────────────────────────────────────
-    private IReadOnlyList<Card>? _cards;
-    private LoadedRomData?       _romData;
-    private bool   _isLoading;
-    private int    _loadProgress;
-    private string _loadingMessage = "";
+    // Estado do ROM vem do cache singleton — load só roda quando MOD muda.
+    private IReadOnlyList<Card>? _cards     => RomCache.Current?.Cards;
+    private LoadedRomData?       _romData   => RomCache.Current;
+    // _isLoading ainda é usado pra esconder UI de fusão enquanto carrega
+    // (evita interagir com dados indefinidos). A barra de progresso em
+    // si vem da global no MainLayout.
+    private bool                 _isLoading => RomCache.IsLoading;
 
     // ── Auto detection ─────────────────────────────────────────────
     private List<string> _windowTitles  = [];
@@ -529,46 +358,27 @@
     private bool         _isAutoDetecting;
     private bool         _isCalculating;
 
-    // ── Catalog filters / sort ─────────────────────────────────────
-    private enum CardSortMode { Default, AtkDesc, AtkAsc, DefDesc, DefAsc, Type }
-
-    private string         _searchTerm = "";
-    private int?           _minAtk;
-    private int?           _maxAtk;
-    private int?           _minDef;
-    private int?           _maxDef;
-    private int?           _filterType;
-    private int?           _filterAttribute;
-    private CardSortMode   _sortMode = CardSortMode.Default;
-    private bool           _onlyFusionMaterials;
+    // ── Hand selection ─────────────────────────────────────────────
     private readonly List<Card> _selectedManualCards = [];
-
     private HashSet<int>? _fusionMaterialIds;
 
-    // ── Zoom (catalog tiles, fusion graph, MY DECK — independent) ──
-    private double _catalogZoom = 0.5;  // grid de cartas no catálogo
+    /// <summary>Estado expandido do catálogo. Bindeado ao componente
+    /// <see cref="CardCatalog"/> pra que o Home possa colapsar
+    /// programaticamente depois de scan/cálculo de fusão — sem isso
+    /// o usuário fica olhando o catálogo cheio em vez do resultado.</summary>
+    private bool _catalogExpanded = true;
+
+    // ── Zoom (fusion graph, MY DECK — catálogo gerencia o próprio) ─
     private double _fusionZoom  = 0.5;  // SVG do grafo de fusões
     private double _deckZoom    = 0.3;  // cards no carrinho (MY DECK)
 
     private const double ZoomStep   = 0.1;
-    private const double CatalogMin = 0.3;
-    private const double CatalogMax = 2.0;
     private const double FusionMin  = 0.2;
     private const double FusionMax  = 2.0;
     private const double DeckMin    = 0.1;
     private const double DeckMax    = 2.0;
 
-    private int TileMinPx     => (int)Math.Round(GraphLayout.NodeW * _catalogZoom * 0.45);
-    private int TileMaxPx     => (int)Math.Round(GraphLayout.NodeW * _catalogZoom);
     private int DeckCardWidth => (int)Math.Round(GraphLayout.NodeW * _deckZoom);
-
-    // ── Long press ─────────────────────────────────────────────────
-    private CancellationTokenSource? _longPressCts;
-    private bool                     _longPressFired;
-    private const int                LongPressMs = 1000;
-
-    // ── Catalog collapse (deck stays always visible) ───────────────
-    private bool _catalogExpanded = true;
 
     // ── Fusion graph: max-step filter ──────────────────────────────
     // 0 = "+4" (sem limite); 1..4 = profundidade máxima do caminho.
@@ -597,19 +407,20 @@
         RefreshWindows();
         _mods = (await ListModsUseCase.ExecuteAsync()).ToList();
 
-        var stored = Preferences.Default.Get(PrefSelectedSlugKey, "");
-        var auto = !string.IsNullOrEmpty(stored) && _mods.Any(m => m.Slug == stored)
-            ? stored
-            : _mods.FirstOrDefault()?.Slug;
-
-        if (auto != null)
-            await OnModChanged(auto);
+        // Cache global lê o MOD ativo uma única vez e mantém em memória.
+        // Aqui só observamos mudanças (load completo / troca de MOD).
+        RomCache.Changed += OnRomCacheChanged;
+        await RomCache.EnsureLoadedAsync();
+        if (RomCache.HasData) BuildFusionMaterialIndex();
 
         // Native shortcut service (works minimized — keyboard + XInput gamepad)
         Shortcuts.Triggered += OnGlobalShortcut;
         Settings.Changed    += ApplyShortcut;
+        L.Changed           += OnLocaleChanged;
         ApplyShortcut();
     }
+
+    private void OnLocaleChanged() => InvokeAsync(StateHasChanged);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -662,23 +473,13 @@
     {
         Shortcuts.Triggered -= OnGlobalShortcut;
         Settings.Changed    -= ApplyShortcut;
+        RomCache.Changed    -= OnRomCacheChanged;
+        L.Changed           -= OnLocaleChanged;
         Shortcuts.SetShortcut(null);
 
         try { _ = JS.InvokeVoidAsync("yugihoKeyboard.stopGamepadWatch"); }
         catch { /* WebView may already be tearing down */ }
         _padJsRef?.Dispose();
-    }
-
-    // ── Mod selection ──────────────────────────────────────────────
-    private async Task OnModChanged(string slug)
-    {
-        _selectedSlug = slug;
-        Preferences.Default.Set(PrefSelectedSlugKey, slug ?? "");
-        var mod = _mods.FirstOrDefault(m => m.Slug == slug);
-        if (mod is null) return;
-
-        ModContext.Set(mod);
-        await LoadCards(mod);
     }
 
     // ── Window list ────────────────────────────────────────────────
@@ -694,50 +495,20 @@
             _selectedWindow = _windowTitles[0];
     }
 
-    // ── Load ROM ───────────────────────────────────────────────────
-    private async Task LoadCards(Mod mod)
+    // ── Reage ao cache global ──────────────────────────────────────
+    private void OnRomCacheChanged()
     {
-        _isLoading     = true;
-        _loadProgress  = 0;
-        _cards         = null;
+        // Quando o cache atualiza (load completo OU troca de MOD),
+        // sincroniza estado local: limpa seleção manual / fusões antigas
+        // e reconstrói o índice de materiais com as cartas novas.
         _allSequences  = null;
         _finalCards    = null;
         _fusionMaterialIds = null;
         _selectedManualCards.Clear();
 
-        try
-        {
-            var progress = new Progress<int>(p =>
-            {
-                _loadProgress   = p;
-                _loadingMessage = p < 20 ? "Lendo arquivos ROM..."
-                                : p < 30 ? "Decodificando cartas..."
-                                : p < 95 ? $"Carregando thumbnails..."
-                                         : "Finalizando...";
-                InvokeAsync(StateHasChanged);
-            });
+        if (RomCache.HasData) BuildFusionMaterialIndex();
 
-            _romData = await LoadRomUseCase.ExecuteAsync(
-                ModRepo.GetGameFilePath(mod),
-                ModRepo.GetMrgFilePath(mod),
-                loadThumbnails: true,
-                profile: null,
-                progress: progress);
-            _cards = _romData.Cards;
-
-            BuildFusionMaterialIndex();
-
-            Snackbar.Add($"MOD '{mod.Name}': {_cards.Count} cartas carregadas.", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Erro ao carregar MOD: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _isLoading = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        InvokeAsync(StateHasChanged);
     }
 
     private void BuildFusionMaterialIndex()
@@ -771,85 +542,11 @@
         _finalCards   = null;
     }
 
-    private IEnumerable<Card> FilteredCards()
-    {
-        if (_cards is null) return Enumerable.Empty<Card>();
-
-        var query = _cards.Where(c => !string.IsNullOrWhiteSpace(c.Name));
-
-        if (!string.IsNullOrEmpty(_searchTerm))
-        {
-            var term = _searchTerm.Trim();
-            query = query.Where(c =>
-                c.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrEmpty(c.Description) &&
-                 c.Description.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
-                c.CardId.ToString().Contains(term));
-        }
-
-        if (_minAtk.HasValue) query = query.Where(c => c.Attack  >= _minAtk.Value);
-        if (_maxAtk.HasValue) query = query.Where(c => c.Attack  <= _maxAtk.Value);
-        if (_minDef.HasValue) query = query.Where(c => c.Defense >= _minDef.Value);
-        if (_maxDef.HasValue) query = query.Where(c => c.Defense <= _maxDef.Value);
-        if (_filterType.HasValue)      query = query.Where(c => c.CardType  == _filterType.Value);
-        if (_filterAttribute.HasValue) query = query.Where(c => c.Attribute == _filterAttribute.Value);
-
-        if (_onlyFusionMaterials && _fusionMaterialIds is { } ids)
-            query = query.Where(c => ids.Contains(c.CardId - 1));
-
-        query = _sortMode switch
-        {
-            CardSortMode.AtkDesc => query.OrderByDescending(c => c.Attack).ThenBy(c => c.Name),
-            CardSortMode.AtkAsc  => query.OrderBy(c => c.Attack).ThenBy(c => c.Name),
-            CardSortMode.DefDesc => query.OrderByDescending(c => c.Defense).ThenBy(c => c.Name),
-            CardSortMode.DefAsc  => query.OrderBy(c => c.Defense).ThenBy(c => c.Name),
-            CardSortMode.Type    => query.OrderBy(c => c.CardType).ThenBy(c => c.Name),
-            _                    => query.OrderBy(c => c.CardId),
-        };
-
-        return query;
-    }
-
-    private int FilteredCardsCount() => FilteredCards().Count();
-
-    // ── Zoom ───────────────────────────────────────────────────────
-    private void CatalogZoomIn()  => _catalogZoom = Math.Min(CatalogMax, Math.Round(_catalogZoom + ZoomStep, 2));
-    private void CatalogZoomOut() => _catalogZoom = Math.Max(CatalogMin, Math.Round(_catalogZoom - ZoomStep, 2));
+    // ── Zoom (apenas grafo de fusões e MY DECK; o catálogo gerencia o próprio) ──
     private void FusionZoomIn()   => _fusionZoom  = Math.Min(FusionMax,  Math.Round(_fusionZoom  + ZoomStep, 2));
     private void FusionZoomOut()  => _fusionZoom  = Math.Max(FusionMin,  Math.Round(_fusionZoom  - ZoomStep, 2));
     private void DeckZoomIn()     => _deckZoom    = Math.Min(DeckMax,    Math.Round(_deckZoom    + ZoomStep, 2));
     private void DeckZoomOut()    => _deckZoom    = Math.Max(DeckMin,    Math.Round(_deckZoom    - ZoomStep, 2));
-
-    // ── Long press / click ─────────────────────────────────────────
-    private async Task StartLongPress(Card c)
-    {
-        CancelLongPress();
-        _longPressFired = false;
-        _longPressCts = new CancellationTokenSource();
-        var token = _longPressCts.Token;
-
-        try
-        {
-            await Task.Delay(LongPressMs, token);
-            _longPressFired = true;
-            await ShowCardDetails(c);
-        }
-        catch (TaskCanceledException) { }
-        catch (OperationCanceledException) { }
-    }
-
-    private void CancelLongPress()
-    {
-        _longPressCts?.Cancel();
-        _longPressCts?.Dispose();
-        _longPressCts = null;
-    }
-
-    private void OnTileClick(Card c)
-    {
-        if (_longPressFired) { _longPressFired = false; return; }
-        AddToHand(c);
-    }
 
     private async Task ShowCardDetails(Card c)
     {
@@ -954,6 +651,10 @@
                     ? "Cartas detectadas já estavam no deck."
                     : $"{added} carta(s) adicionada(s) ao deck (total: {_selectedManualCards.Count}).",
                 added == 0 ? Severity.Info : Severity.Success);
+
+            // Se cartas foram adicionadas, colapsa o catálogo pra dar
+            // foco no MY DECK / resultado da fusão.
+            if (added > 0) _catalogExpanded = false;
         }
         catch (Exception ex)
         {
@@ -979,7 +680,8 @@
         {
             var hand = _selectedManualCards.Select(c => c.CardId - 1).ToList();
             await ComputeAndShowFusions(hand);
-            // Auto-collapse the catalog so the graph gets focus (deck stays visible)
+            // Colapsa o catálogo pra que o grafo de fusões fique em
+            // primeiro plano. MY DECK continua visível acima.
             _catalogExpanded = false;
         }
         catch (Exception ex)

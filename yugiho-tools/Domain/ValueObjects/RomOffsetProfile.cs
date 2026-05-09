@@ -27,8 +27,22 @@ public sealed record RomOffsetProfile
     public int EquipBlockSize   { get; init; } = 0x2800;
     public int Thumbnails       { get; init; } = 0x16BAE0;
     public int ThumbnailStride  { get; init; } = 14336;
+    /// <summary>Offset da arte HD (102×96, indexed) — usada na tela de
+    /// detalhes do jogo quando se aperta Triangle. Compartilha o stride
+    /// com os thumbnails (mesmo slot de 14336 bytes por carta).</summary>
+    public int CardArt          { get; init; } = 0x169000;
+    public int CardArtWidth     { get; init; } = 102;
+    public int CardArtHeight    { get; init; } = 96;
     public int DuelistData      { get; init; } = 0xE9B000;
     public int DuelistStride    { get; init; } = 0x1800;
+    /// <summary>
+    /// Offset da tabela de rituais no MRG. Cada entrada tem 10 bytes
+    /// (5 × uint16 LE): <c>[ritualSpellId, req1, req2, req3, result]</c>,
+    /// todos card IDs 1-based (mascarados em 10 bits). A leitura termina
+    /// quando uma entrada zerada é encontrada.
+    /// Engenharia reversa via TEAONLINE Ritual Editor.
+    /// </summary>
+    public int Rituals          { get; init; } = 0xB97400;
     public int DuelistDeckOff   { get; init; } = 0x000;
     public int DuelistSaPowOff  { get; init; } = 0x5B4;
     public int DuelistBcdPowOff { get; init; } = 0xB68;
@@ -36,11 +50,14 @@ public sealed record RomOffsetProfile
 
     // ── Decoder behavior ────────────────────────────────────────────────────
     /// <summary>
-    /// Bytes that introduce a 3-byte control sequence (the byte itself + 2 args)
-    /// and should be skipped while decoding text. Common in modded ROMs that use
-    /// color/font escape codes (e.g. F8 0A 06 prefix in LMFV).
+    /// Bytes que introduzem uma sequência de controle de 3 bytes
+    /// (o próprio byte + 2 args) e devem ser pulados ao decodificar texto.
+    /// No FM-US e mods compatíveis, só <c>0xF8</c> é control (cor/fonte).
+    /// <c>0xFD</c> NÃO é control padrão — adicionar à lista quebra a leitura
+    /// de descrições que contêm 0xFD como caractere/separador legítimo
+    /// (sintoma: descrição emendada com texto da próxima carta).
     /// </summary>
-    public byte[] TextControlCodes3 { get; init; } = [0xF8, 0xFD];
+    public byte[] TextControlCodes3 { get; init; } = [0xF8];
 
     public static RomOffsetProfile Default { get; } = new();
 }

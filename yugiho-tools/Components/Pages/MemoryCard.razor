@@ -6,14 +6,13 @@
 
 @using Color = MudBlazor.Color
 @using Size = MudBlazor.Size
-@inject LoadRomDataUseCase LoadRomUseCase
 @inject GetFusionsFromHandUseCase GetFusionsUseCase
 @inject ParseMemoryCardUseCase ParseMemoryCardUseCase
-@inject ListModsUseCase ListModsUseCase
-@inject yugiho_tools.Domain.Interfaces.IModRepository ModRepo
-@inject yugiho_tools.Application.Services.CurrentModContext ModContext
+@inject yugiho_tools.Application.Services.LoadedRomCache    RomCache
+@inject yugiho_tools.Application.Services.LocalizationService L
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@implements IDisposable
 
 <MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
               Style="max-width:80%; margin-left:auto; margin-right:auto;">
@@ -30,52 +29,16 @@
         </div>
     </div>
 
-    <!-- ─── Mod + File pickers ────────────────────────────────────── -->
+    <!-- ─── File picker ───────────────────────────────────────────── -->
     <MudGrid Spacing="3" Class="mb-4">
-        <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4 h-100" Elevation="3"
-                      Style="background:#141428; border:1px solid #2a2a6e;">
-                <MudText Typo="Typo.subtitle2" Style="color:#c8a415; font-weight:700;"
-                         Class="mb-2">
-                    <MudIcon Icon="@Icons.Material.Filled.LibraryBooks"
-                             Class="mr-1" Size="Size.Small" />
-                    MOD para mapear cartas
-                </MudText>
-                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
-
-                <MudSelect T="string" Value="_selectedSlug"
-                           ValueChanged="OnModChanged"
-                           Label="ROM cadastrada"
-                           Variant="Variant.Outlined"
-                           Disabled="@(_mods.Count == 0 || _isLoading)"
-                           AnchorOrigin="Origin.BottomLeft">
-                    @foreach (var m in _mods)
-                    {
-                        <MudSelectItem T="string" Value="@m.Slug">
-                            @m.Name <span style="color:#666;">— MOD/@m.Slug</span>
-                        </MudSelectItem>
-                    }
-                </MudSelect>
-
-                @if (_isLoading)
-                {
-                    <MudProgressLinear Value="_loadProgress" Color="Color.Primary"
-                                       Rounded="true" Class="mt-3" />
-                    <MudText Typo="Typo.caption" Style="color:#c8a415;" Class="mt-1">
-                        @_loadingMessage (@_loadProgress%)
-                    </MudText>
-                }
-            </MudPaper>
-        </MudItem>
-
-        <MudItem xs="12" md="6">
+        <MudItem xs="12">
             <MudPaper Class="pa-4 h-100" Elevation="3"
                       Style="background:#141428; border:1px solid #2a2a6e;">
                 <MudText Typo="Typo.subtitle2" Style="color:#c8a415; font-weight:700;"
                          Class="mb-2">
                     <MudIcon Icon="@Icons.Material.Filled.UploadFile"
                              Class="mr-1" Size="Size.Small" />
-                    Arquivo do memory card
+                    @L.T("memCard.fileLabel")
                 </MudText>
                 <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
@@ -94,7 +57,7 @@
                     </MudButton>
                 </div>
                 <MudText Typo="Typo.caption" Style="color:#888;" Class="mt-2">
-                    Pasta padrão do ePSXe: <code>C:\epsxe\memcards\</code>
+                    @L.T("memCard.fileHelp")
                 </MudText>
 
                 @if (_isParsing)
@@ -113,7 +76,7 @@
                   Style="background:#141428; border:1px solid #2a2a6e;">
             <MudText Typo="Typo.overline"
                      Style="color:#888; letter-spacing:2px;">
-                SAVES ENCONTRADOS (@_parseResult.Saves.Count)
+                @L.T("memCard.savesFound", _parseResult.Saves.Count)
             </MudText>
             <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
 
@@ -185,10 +148,9 @@
                 <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
                     <div>
                         <MudText Typo="Typo.overline"
-                                 Style="color:#888; letter-spacing:2px;">CARTAS DO SAVE</MudText>
+                                 Style="color:#888; letter-spacing:2px;">@L.T("memCard.saveCards")</MudText>
                         <MudText Typo="Typo.h6" Style="color:#c8a415; font-weight:700;">
-                            @_selectedSave.Cards.Count cartas distintas ·
-                            @_selectedSave.Cards.Sum(e => e.Count) total
+                            @L.T("memCard.cardsDistinctTotal", _selectedSave.Cards.Count, _selectedSave.Cards.Sum(e => e.Count))
                         </MudText>
                     </div>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
@@ -197,7 +159,7 @@
                                OnClick="CalculateFusions"
                                Disabled="@(_isCalculating || _selectedSave.Cards.Count == 0)"
                                Style="font-weight:700; min-width:240px;">
-                        @(_isCalculating ? "CALCULANDO..." : "CALCULAR FUSÕES DO DECK")
+                        @(_isCalculating ? L.T("home.calculating") : L.T("home.calcFusions"))
                     </MudButton>
                 </div>
 
@@ -208,8 +170,7 @@
                         var card = CardForId(entry.CardId);
                         if (card is null) continue;
                         <div class="card-tile" title="@($"{card.Name} — ATK {card.Attack} / DEF {card.Defense}")">
-                            <img src="@CardImage.Url(ModContext.ImageUrlTemplate, card.CardId)" loading="lazy"
-                                 class="card-tile-img" alt="@card.Name" />
+                            <CardCover Card="@card" Fill="true" ImgClass="card-tile-img" />
                             @if (entry.Count > 1)
                             {
                                 <div class="save-card-count">×@entry.Count</div>
@@ -229,11 +190,11 @@
                                Dense="true"
                                Margin="Margin.Dense"
                                Style="min-width:140px; max-width:170px;"
-                               Label="Ordenar"
+                               Label="@L.T("memCard.sort.label")"
                                AdornmentIcon="@Icons.Material.Filled.Sort"
                                Adornment="Adornment.Start">
-                        <MudSelectItem Value="GraphLayoutMode.Fusion">Fusão</MudSelectItem>
-                        <MudSelectItem Value="GraphLayoutMode.Step">Step</MudSelectItem>
+                        <MudSelectItem Value="GraphLayoutMode.Fusion">@L.T("memCard.sort.fusion")</MudSelectItem>
+                        <MudSelectItem Value="GraphLayoutMode.Step">@L.T("memCard.sort.steps")</MudSelectItem>
                     </MudSelect>
 
                     <MudSelect T="GraphVisibility"
@@ -277,8 +238,7 @@
                                     MaxSteps="@(_maxStepsFilter > 0 ? _maxStepsFilter : null)"
                                     LayoutMode="_layoutMode"
                                     Visibility="_visibility"
-                                    OnCardClicked="ShowCardBranches"
-                                    OnCardLongClicked="ShowCardDetails"
+                                    OnCardClicked="ShowCardDetails"
                                     OnJunctionClicked="ShowJunctionFlow" />
                 </MudPaper>
             }
@@ -312,17 +272,10 @@
 </style>
 
 @code {
-    private const string PrefSelectedSlugKey = "yugiho.selectedModSlug";
 
-    // Mods
-    private List<Mod> _mods = [];
-    private string?  _selectedSlug;
-
-    // Cards (loaded from selected mod)
-    private IReadOnlyList<Card>? _cards;
-    private bool   _isLoading;
-    private int    _loadProgress;
-    private string _loadingMessage = "";
+    // Cartas vêm direto do RomCache singleton — load só uma vez por MOD.
+    // Progresso de load é exibido pela barra global no MainLayout.
+    private IReadOnlyList<Card>? _cards => RomCache.Current?.Cards;
 
     // Memory card
     private string? _mcrFilePath;
@@ -346,58 +299,27 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _mods = (await ListModsUseCase.ExecuteAsync()).ToList();
-
-        var stored = Preferences.Default.Get(PrefSelectedSlugKey, "");
-        var auto = !string.IsNullOrEmpty(stored) && _mods.Any(m => m.Slug == stored)
-            ? stored
-            : _mods.FirstOrDefault()?.Slug;
-
-        if (auto != null)
-            await OnModChanged(auto);
+        RomCache.Changed += OnRomChanged;
+        L.Changed        += OnLocaleChanged;
+        // Limpa estado dependente do MOD quando ele muda — o cache já
+        // observa ModContext, então só precisamos reagir ao Changed.
+        await RomCache.EnsureLoadedAsync();
     }
 
-    private async Task OnModChanged(string slug)
+    private void OnRomChanged()
     {
-        _selectedSlug = slug;
-        Preferences.Default.Set(PrefSelectedSlugKey, slug ?? "");
-        var mod = _mods.FirstOrDefault(m => m.Slug == slug);
-        if (mod is null) return;
+        // Mudou de MOD: invalida estado de save e fusões calculadas pra
+        // evitar mostrar dados do MOD anterior.
+        if (RomCache.LoadedFor is null || _selectedSave is null) { /* nada a invalidar */ }
+        InvokeAsync(StateHasChanged);
+    }
 
-        ModContext.Set(mod);
-        _isLoading = true;
-        _loadProgress = 0;
-        _cards = null;
-        _parseResult = null;
-        _selectedSave = null;
-        _allSequences = null;
+    private void OnLocaleChanged() => InvokeAsync(StateHasChanged);
 
-        try
-        {
-            var progress = new Progress<int>(p =>
-            {
-                _loadProgress = p;
-                _loadingMessage = p < 30 ? "Lendo ROM..." : "Carregando cartas...";
-                InvokeAsync(StateHasChanged);
-            });
-
-            var rom = await LoadRomUseCase.ExecuteAsync(
-                ModRepo.GetGameFilePath(mod),
-                ModRepo.GetMrgFilePath(mod),
-                loadThumbnails: true,
-                profile: null,
-                progress: progress);
-            _cards = rom.Cards;
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Erro ao carregar MOD: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _isLoading = false;
-            await InvokeAsync(StateHasChanged);
-        }
+    public void Dispose()
+    {
+        RomCache.Changed -= OnRomChanged;
+        L.Changed        -= OnLocaleChanged;
     }
 
     private async Task PickMcrFile()

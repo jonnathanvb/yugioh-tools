@@ -6,6 +6,8 @@
 @using Size  = MudBlazor.Size
 
 @inject CurrentModContext ModContext
+@inject LocalizationService L
+@implements IDisposable
 
 @*
     Reusable card grid with filter bar (search, type, attribute, ATK/DEF range,
@@ -22,8 +24,8 @@
 
     <div class="d-flex align-center justify-space-between mb-3 flex-wrap gap-2">
         <MudButton Variant="Variant.Text" Size="Size.Medium"
-                   StartIcon="@(_expanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                   OnClick="@(() => _expanded = !_expanded)"
+                   StartIcon="@(IsExpanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                   OnClick="ToggleExpanded"
                    Style="color:#c8a415; font-weight:700; letter-spacing:1px;">
             <MudIcon Icon="@Icons.Material.Filled.GridView" Class="mr-1" />
             @Title
@@ -31,7 +33,7 @@
 
         @if (ShowZoom)
         {
-            <div class="d-flex align-center gap-1" title="Zoom do catálogo">
+            <div class="d-flex align-center gap-1" title="@L.T("catalog.zoomTitle")">
                 <MudIconButton Icon="@Icons.Material.Filled.Remove"
                                Size="Size.Small"
                                OnClick="ZoomOut"
@@ -47,84 +49,61 @@
         }
     </div>
 
-    <MudCollapse Expanded="@_expanded">
+    <MudCollapse Expanded="@IsExpanded">
         <MudGrid Spacing="2" Class="mb-2">
             <MudItem xs="12" sm="6" md="4">
                 <MudTextField T="string"
                               Value="@_searchTerm"
                               ValueChanged="@(v => { _searchTerm = v ?? ""; })"
                               Immediate="true"
-                              Label="Nome, descrição ou #ID"
+                              Label="@L.T("catalog.searchPlaceholder")"
                               Variant="Variant.Outlined"
                               Adornment="Adornment.Start"
                               AdornmentIcon="@Icons.Material.Filled.Search" />
             </MudItem>
-            <MudItem xs="6" sm="3" md="2">
-                <MudSelect T="int?"
-                           Value="_filterType"
-                           ValueChanged="@(v => { _filterType = v; })"
-                           ToStringFunc="@(v => v.HasValue ? CardMetadata.TypeName(v.Value) : "")"
-                           Label="Tipo" Variant="Variant.Outlined"
-                           Clearable="true">
-                    @foreach (var t in CardMetadata.Types)
-                    {
-                        <MudSelectItem T="int?" Value="@((int?)t.Id)">@t.Name</MudSelectItem>
-                    }
-                </MudSelect>
+            
+            <MudItem xs="6" sm="4" md="2">
+                <RangeFilterField Label="ATK"
+                                  Min="_minAtk" MinChanged="@(v => _minAtk = v)"
+                                  Max="_maxAtk" MaxChanged="@(v => _maxAtk = v)" />
             </MudItem>
-            <MudItem xs="6" sm="3" md="2">
-                <MudSelect T="int?"
-                           Value="_filterAttribute"
-                           ValueChanged="@(v => { _filterAttribute = v; })"
-                           ToStringFunc="@(v => v.HasValue ? CardMetadata.AttributeName(v.Value) : "")"
-                           Label="Atributo" Variant="Variant.Outlined"
-                           Clearable="true">
-                    @foreach (var a in CardMetadata.Attributes)
-                    {
-                        <MudSelectItem T="int?" Value="@((int?)a.Id)">@a.Name</MudSelectItem>
-                    }
-                </MudSelect>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="4">
-                <MudSelect T="CardSortMode" @bind-Value="_sortMode"
-                           Label="Ordenar" Variant="Variant.Outlined">
-                    <MudSelectItem T="CardSortMode" Value="CardSortMode.Default">#ID</MudSelectItem>
-                    <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkDesc">ATK ↓</MudSelectItem>
-                    <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkAsc">ATK ↑</MudSelectItem>
-                    <MudSelectItem T="CardSortMode" Value="CardSortMode.DefDesc">DEF ↓</MudSelectItem>
-                    <MudSelectItem T="CardSortMode" Value="CardSortMode.DefAsc">DEF ↑</MudSelectItem>
-                    <MudSelectItem T="CardSortMode" Value="CardSortMode.Type">Tipo</MudSelectItem>
-                </MudSelect>
+            <MudItem xs="6" sm="4" md="2">
+                <RangeFilterField Label="DEF"
+                                  Min="_minDef" MinChanged="@(v => _minDef = v)"
+                                  Max="_maxDef" MaxChanged="@(v => _maxDef = v)" />
             </MudItem>
         </MudGrid>
 
         <MudGrid Spacing="2" Class="mb-3">
             <MudItem xs="6" sm="3" md="2">
-                <MudNumericField T="int?" @bind-Value="_minAtk"
-                                 Label="ATK min" Variant="Variant.Outlined"
-                                 Min="0" Step="100" Clearable="true" />
+                <CategoryFilterSelect Kind="CategoryIconLabel.CategoryKind.Type"
+                                      Label="@L.T("common.type")"
+                                      Value="_filterType"
+                                      ValueChanged="@(v => _filterType = v)" />
             </MudItem>
             <MudItem xs="6" sm="3" md="2">
-                <MudNumericField T="int?" @bind-Value="_maxAtk"
-                                 Label="ATK max" Variant="Variant.Outlined"
-                                 Min="0" Step="100" Clearable="true" />
+                <CategoryFilterSelect Kind="CategoryIconLabel.CategoryKind.Attribute"
+                                      Label="@L.T("common.attribute")"
+                                      Value="_filterAttribute"
+                                      ValueChanged="@(v => _filterAttribute = v)" />
             </MudItem>
             <MudItem xs="6" sm="3" md="2">
-                <MudNumericField T="int?" @bind-Value="_minDef"
-                                 Label="DEF min" Variant="Variant.Outlined"
-                                 Min="0" Step="100" Clearable="true" />
-            </MudItem>
-            <MudItem xs="6" sm="3" md="2">
-                <MudNumericField T="int?" @bind-Value="_maxDef"
-                                 Label="DEF max" Variant="Variant.Outlined"
-                                 Min="0" Step="100" Clearable="true" />
+                <MudSelect T="CardSortMode" @bind-Value="_sortMode"
+                           Label="@L.T("catalog.sort")" Variant="Variant.Outlined">
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.Default">@L.T("catalog.sort.default")</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkDesc">@L.T("catalog.sort.atkDesc")</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.AtkAsc">@L.T("catalog.sort.atkAsc")</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.DefDesc">@L.T("catalog.sort.defDesc")</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.DefAsc">@L.T("catalog.sort.defAsc")</MudSelectItem>
+                    <MudSelectItem T="CardSortMode" Value="CardSortMode.Type">@L.T("catalog.sort.type")</MudSelectItem>
+                </MudSelect>
             </MudItem>
             @if (FusionMaterialIds is not null)
             {
-                <MudItem xs="12" md="4" Class="d-flex align-center">
+                <MudItem xs="12" md="3" Class="d-flex align-center">
                     <MudSwitch T="bool" @bind-Value="_onlyFusionMaterials"
                                Color="Color.Primary"
-                               Label="Só cartas usadas em fusão" />
+                               Label="@L.T("catalog.onlyFusionMaterials")" />
                 </MudItem>
             }
         </MudGrid>
@@ -136,8 +115,9 @@
             int tileMaxPx = (int)(110 * _zoom);
         }
         <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2">
-            @filtered.Count de @totalFiltered cartas
-            @(totalFiltered > MaxGridCards ? $" (mostrando primeiras {MaxGridCards} — refine o filtro)" : "")
+            @(totalFiltered > MaxGridCards
+                ? L.T("catalog.totalCountTruncated", filtered.Count, totalFiltered, MaxGridCards)
+                : L.T("catalog.totalCount", filtered.Count, totalFiltered))
         </MudText>
 
         <div class="card-grid"
@@ -148,15 +128,8 @@
                 var card = c;
                 <div class="card-tile @(selected ? "selected" : "")"
                      @onclick="() => InvokeClick(card)"
-                     @onmousedown="() => StartLongPress(card)"
-                     @onmouseup="CancelLongPress"
-                     @onmouseleave="CancelLongPress"
-                     @ontouchstart="() => StartLongPress(card)"
-                     @ontouchend="CancelLongPress"
-                     @ontouchcancel="CancelLongPress"
-                     title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense} · segure 3s para detalhes")">
-                    <img src="@CardImage.Url(ModContext.ImageUrlTemplate, c.CardId)" loading="lazy"
-                         class="card-tile-img" alt="@c.Name" />
+                     title="@($"{c.Name} — ATK {c.Attack} / DEF {c.Defense}")">
+                    <CardCover Card="@c" Fill="true" ImgClass="card-tile-img" />
                     @if (selected)
                     {
                         <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
@@ -172,13 +145,19 @@
     [Parameter] public string Title { get; set; } = "Catálogo de cartas";
     [Parameter, EditorRequired] public IReadOnlyList<Card> Cards { get; set; } = [];
     [Parameter] public EventCallback<Card> OnCardClick { get; set; }
-    [Parameter] public EventCallback<Card> OnCardLongPress { get; set; }
     [Parameter] public Func<Card, bool>? HighlightSelected { get; set; }
     [Parameter] public HashSet<int>? FusionMaterialIds { get; set; }
     [Parameter] public bool ShowZoom { get; set; } = true;
     [Parameter] public int  MaxGridCards { get; set; } = 200;
-    [Parameter] public int  LongPressMs  { get; set; } = 3000;
     [Parameter] public bool StartExpanded { get; set; } = true;
+
+    /// <summary>Two-way: estado expandido/colapsado controlável pelo
+    /// pai. Quando o caller liga via <c>@bind-Expanded</c>, ele pode
+    /// fechar o catálogo programaticamente (ex.: depois de um scan
+    /// pra dar foco no resultado). Sem binding, o componente usa
+    /// estado interno e o pai não interfere.</summary>
+    [Parameter] public bool? Expanded { get; set; }
+    [Parameter] public EventCallback<bool> ExpandedChanged { get; set; }
 
     public enum CardSortMode { Default, AtkDesc, AtkAsc, DefDesc, DefAsc, Type }
 
@@ -188,11 +167,33 @@
     private int?   _minAtk, _maxAtk, _minDef, _maxDef;
     private bool   _onlyFusionMaterials;
     private CardSortMode _sortMode = CardSortMode.Default;
-    private bool _expanded;
+    private bool _internalExpanded;
+    private bool IsExpanded => Expanded ?? _internalExpanded;
     private double _zoom = 1.0;
     private const double ZoomMin = 0.5, ZoomMax = 2.0, ZoomStep = 0.1;
 
-    protected override void OnParametersSet() => _expanded = StartExpanded || _expanded;
+    protected override void OnParametersSet()
+    {
+        // Estado interno preserva StartExpanded inicialmente; updates do
+        // pai via Expanded (binding) têm precedência via IsExpanded.
+        _internalExpanded = StartExpanded || _internalExpanded;
+    }
+
+    private async Task ToggleExpanded()
+    {
+        var next = !IsExpanded;
+        if (Expanded.HasValue) await ExpandedChanged.InvokeAsync(next);
+        else _internalExpanded = next;
+    }
+
+    protected override void OnInitialized()
+    {
+        L.Changed += OnLocaleChanged;
+    }
+
+    private void OnLocaleChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => L.Changed -= OnLocaleChanged;
 
     private void ZoomIn()  => _zoom = Math.Min(ZoomMax, Math.Round(_zoom + ZoomStep, 2));
     private void ZoomOut() => _zoom = Math.Max(ZoomMin, Math.Round(_zoom - ZoomStep, 2));
@@ -236,39 +237,8 @@
 
     private int FilteredCardsTotal() => FilteredCards().Count();
 
-    // ── Click vs long-press ────────────────────────────────────────────
-    private CancellationTokenSource? _longPressCts;
-    private bool _longPressFired;
-
-    private void StartLongPress(Card c)
-    {
-        CancelLongPress();
-        _longPressFired = false;
-        var cts = new CancellationTokenSource();
-        _longPressCts = cts;
-        _ = Task.Delay(LongPressMs, cts.Token).ContinueWith(t =>
-        {
-            if (t.IsCompletedSuccessfully && !cts.IsCancellationRequested)
-            {
-                _longPressFired = true;
-                _ = InvokeAsync(async () =>
-                {
-                    if (OnCardLongPress.HasDelegate) await OnCardLongPress.InvokeAsync(c);
-                });
-            }
-        }, TaskScheduler.Default);
-    }
-
-    private void CancelLongPress()
-    {
-        _longPressCts?.Cancel();
-        _longPressCts?.Dispose();
-        _longPressCts = null;
-    }
-
     private async Task InvokeClick(Card c)
     {
-        if (_longPressFired) { _longPressFired = false; return; }
         if (OnCardClick.HasDelegate) await OnCardClick.InvokeAsync(c);
     }
 }

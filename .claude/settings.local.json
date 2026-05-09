@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet build *)"
+      "Bash(dotnet build *)",
+      "Bash(curl -s -L \"https://www.basededatostea.xyz/extend/result/cards\" -A \"Mozilla/5.0\")",
+      "Bash(curl -s \"https://www.basededatostea.xyz/Assets/js/saver.js\")",
+      "Bash(curl -s \"https://www.basededatostea.xyz/js/extend/result/cards.8b59deea.js\" -A \"Mozilla/5.0\")"
     ]
   }
 }

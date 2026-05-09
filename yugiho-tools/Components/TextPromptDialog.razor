@@ -1,0 +1,42 @@
+@inject yugiho_tools.Application.Services.LocalizationService L
+
+<MudDialog Style="background:#0d0d1a;">
+    <DialogContent>
+        <MudTextField T="string" @bind-Value="_value"
+                      Placeholder="@Placeholder"
+                      Variant="Variant.Outlined" AutoFocus="true"
+                      OnKeyDown="OnKeyDown" Immediate="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L.T("common.cancel")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="Confirm" Disabled="@string.IsNullOrWhiteSpace(_value)">
+            @L.T("common.confirm")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string Title       { get; set; } = "";
+    [Parameter] public string Placeholder { get; set; } = "";
+    [Parameter] public string Initial     { get; set; } = "";
+
+    private string _value = "";
+
+    protected override void OnInitialized() => _value = Initial;
+
+    private void Confirm()
+    {
+        if (string.IsNullOrWhiteSpace(_value)) return;
+        MudDialog.Close(DialogResult.Ok(_value.Trim()));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") Confirm();
+        else if (e.Key == "Escape") Cancel();
+    }
+}

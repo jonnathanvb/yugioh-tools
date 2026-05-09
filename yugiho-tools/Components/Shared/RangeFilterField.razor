@@ -1,0 +1,92 @@
+@*
+   Filtro de faixa numérica em UM único campo. Aceita:
+     • "1500"        → Min = 1500, Max = null  (ATK ≥ 1500)
+     • "1500-2000"   → Min = 1500, Max = 2000  (1500 ≤ ATK ≤ 2000)
+     • ""            → Min = null, Max = null  (sem filtro)
+   Substitui o par de MudNumericField "min/max" duplicado em CardCatalog
+   e Home. Parsing tolerante a espaços; valores inválidos são ignorados
+   silenciosamente (mantém último válido) pra não atrapalhar digitação.
+*@
+<MudTextField T="string"
+              Value="@_text"
+              ValueChanged="OnTextChanged"
+              Immediate="true"
+              DebounceInterval="200"
+              Label="@Label"
+              Placeholder="@Placeholder"
+              Variant="Variant.Outlined"
+              Adornment="Adornment.End"
+              AdornmentIcon="@Icons.Material.Filled.SwapHoriz"
+              HelperText="@Helper"
+              Clearable="true" />
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    [Parameter] public int? Min { get; set; }
+    [Parameter] public EventCallback<int?> MinChanged { get; set; }
+
+    [Parameter] public int? Max { get; set; }
+    [Parameter] public EventCallback<int?> MaxChanged { get; set; }
+
+    [Parameter] public string Placeholder { get; set; } = "1500 ou 1500-2000";
+    [Parameter] public string Helper { get; set; } = "Use \"-\" pra faixa";
+
+    private string _text = "";
+
+    /// <summary>Mantém o texto sincronizado quando Min/Max muda externamente
+    /// (ex.: reset). Sem isso o campo ficaria com valor stale após clear
+    /// programático.</summary>
+    protected override void OnParametersSet()
+    {
+        var formatted = Format(Min, Max);
+        // Só atualiza o texto se o valor formatado mudou — preserva o que
+        // o usuário está digitando (ex.: "1500-" enquanto completa).
+        if (Format(ParsedMin(_text), ParsedMax(_text)) != formatted)
+            _text = formatted;
+    }
+
+    private async Task OnTextChanged(string? value)
+    {
+        _text = value ?? "";
+        var (min, max) = Parse(_text);
+
+        if (min != Min) await MinChanged.InvokeAsync(min);
+        if (max != Max) await MaxChanged.InvokeAsync(max);
+    }
+
+    private static string Format(int? min, int? max) =>
+        (min, max) switch
+        {
+            (null, null)        => "",
+            (var a, null)       => a!.Value.ToString(),
+            (null, var b)       => "-" + b!.Value,
+            (var a, var b)      => $"{a}-{b}",
+        };
+
+    /// <summary>
+    /// Aceita "1500", "1500-", "-2000", "1500-2000". Retorna (null,null)
+    /// se vazio. Tolera espaços ao redor do separador.
+    /// </summary>
+    private static (int? Min, int? Max) Parse(string raw)
+    {
+        var s = (raw ?? "").Trim();
+        if (s.Length == 0) return (null, null);
+
+        int dash = s.IndexOf('-');
+        if (dash < 0)
+        {
+            return (TryParse(s), null);
+        }
+
+        var left  = s[..dash].Trim();
+        var right = s[(dash + 1)..].Trim();
+        return (TryParse(left), TryParse(right));
+    }
+
+    private static int? ParsedMin(string s) => Parse(s).Min;
+    private static int? ParsedMax(string s) => Parse(s).Max;
+
+    private static int? TryParse(string s) =>
+        int.TryParse(s, out var v) && v >= 0 ? v : null;
+}

@@ -1,0 +1,47 @@
+@using yugiho_tools.Application.Helpers
+
+@*
+   Filtro de Tipo ou Atributo. Centraliza:
+     • ordenação alfabética
+     • renderização "{ícone} {nome}" no dropdown
+     • texto selecionado via ToStringFunc
+
+   Substitui o pattern duplicado em CardCatalog, Home e CardPickerDialog.
+   Dependências: usa CategoryIconLabel pra renderizar cada item.
+*@
+
+<MudSelect T="int?"
+           Style="margin: 8px 0px;"
+           Value="@Value"
+           ValueChanged="ValueChanged"
+           ToStringFunc="@(v => v.HasValue ? NameFor(v.Value) : "")"
+           Label="@Label"
+           Variant="Variant.Outlined"
+           Margin="@Margin"
+           Clearable="true">
+    @foreach (var entry in OrderedEntries)
+    {
+        <MudSelectItem T="int?" Value="@((int?)entry.Id)">
+            <CategoryIconLabel Kind="@Kind" Id="@entry.Id" />
+        </MudSelectItem>
+    }
+</MudSelect>
+
+@code {
+    [Parameter, EditorRequired] public CategoryIconLabel.CategoryKind Kind { get; set; }
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public int? Value { get; set; }
+    [Parameter] public EventCallback<int?> ValueChanged { get; set; }
+    [Parameter] public Margin Margin { get; set; } = Margin.Normal;
+
+    private IEnumerable<CardCategoryEntry> OrderedEntries =>
+        (Kind == CategoryIconLabel.CategoryKind.Type
+            ? CardMetadata.Types
+            : CardMetadata.Attributes)
+        .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase);
+
+    private string NameFor(int id) =>
+        Kind == CategoryIconLabel.CategoryKind.Type
+            ? CardMetadata.TypeName(id)
+            : CardMetadata.AttributeName(id);
+}

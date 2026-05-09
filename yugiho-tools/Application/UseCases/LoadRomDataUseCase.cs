@@ -1,4 +1,5 @@
 using yugiho_tools.Application.DTOs;
+using yugiho_tools.Application.Helpers;
 using yugiho_tools.Domain.Entities;
 using yugiho_tools.Domain.Interfaces;
 using yugiho_tools.Domain.ValueObjects;
@@ -17,7 +18,13 @@ public class LoadRomDataUseCase(IRomParser parser)
         var data = await parser.ParseAsync(gameFilePath, mrgFilePath, profile, progress);
 
         if (loadThumbnails)
+        {
             await parser.LoadThumbnailsAsync(data.Cards, mrgFilePath, profile, progress);
+            // Atualiza o registry compartilhado para que toda chamada a
+            // CardImage.Url possa servir a arte do ROM quando o usuário
+            // escolher a fonte "MOD" nas configurações.
+            CardImage.LoadFromCards(data.Cards);
+        }
 
         return new LoadedRomData(data.Cards, data.Duelists);
     }

@@ -1,0 +1,197 @@
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Application.UseCases
+@using yugiho_tools.Domain.Entities
+@inject CurrentModContext   ModContext
+@inject IDialogService      DialogService
+@inject LocalizationService L
+
+@*
+   Diálogo de detalhe do duelista. 3 abas:
+   - Deck:    cartas que o duelista joga (aparece com peso/2048).
+   - SA POW:  cartas que dropa quando você ganha com rank S/A POW.
+   - SA TEC:  cartas que dropa quando você ganha com rank S/A TEC.
+
+   Probabilidade = peso / soma_do_pool * 100. Cartas com peso 0 são
+   omitidas. Quando o pool não tem nenhuma entrada (mod com drops
+   ausente/criptografado), mostramos uma mensagem clara.
+*@
+
+<MudDialog Class="card-detail-dialog" Style="background:#0d0d1a;">
+    <TitleContent>
+        <div class="d-flex align-center gap-3">
+            @{
+                var portrait = ExtractedAssets.GetDuelist(Duelist.Id);
+            }
+            @if (portrait is not null)
+            {
+                <img src="@portrait" alt="@Duelist.Name"
+                     style="width:48px; height:48px; object-fit:contain;
+                            image-rendering:pixelated;
+                            border:1px solid #c8a415; border-radius:4px;" />
+            }
+            <div>
+                <MudText Typo="Typo.caption" Style="color:#888;">
+                    DUELISTA · #@Duelist.Id
+                </MudText>
+                <MudText Typo="Typo.h6" Style="color:#c8a415; font-weight:700;">
+                    @Duelist.Name
+                </MudText>
+            </div>
+        </div>
+    </TitleContent>
+
+    <DialogContent>
+        <MudTabs Outlined="true" Position="Position.Top" Rounded="true"
+                 ApplyEffectsToContainer="true" Color="@Color.Primary"
+                 PanelClass="pa-3" Style="background:#0d0d1a;">
+
+            <MudTabPanel Icon="@Icons.Material.Filled.Style" Text="@DeckLabel">
+                @RenderPool(Duelist.Deck, "deck")
+            </MudTabPanel>
+
+            <MudTabPanel Icon="@Icons.Material.Filled.WorkspacePremium" Text="@SaPowLabel">
+                @RenderPool(Duelist.SaPow, "S/A POW")
+            </MudTabPanel>
+
+            <MudTabPanel Icon="@Icons.Material.Filled.Speed" Text="@SaTecLabel">
+                @RenderPool(Duelist.SaTec, "S/A TEC")
+            </MudTabPanel>
+        </MudTabs>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">
+            @L.T("common.close")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Duelist                Duelist  { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<Card>    AllCards { get; set; } = [];
+    [Parameter] public LoadedRomData? RomData { get; set; }
+
+    private string DeckLabel  => $"Deck ({CountNonZero(Duelist.Deck)})";
+    private string SaPowLabel => $"S/A POW ({CountNonZero(Duelist.SaPow)})";
+    private string SaTecLabel => $"S/A TEC ({CountNonZero(Duelist.SaTec)})";
+
+    private static int CountNonZero(ushort[] pool)
+    {
+        int n = 0;
+        foreach (var v in pool) if (v > 0) n++;
+        return n;
+    }
+
+    private static int Sum(ushort[] pool)
+    {
+        int s = 0;
+        foreach (var v in pool) s += v;
+        return s;
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+
+    private async Task ShowCardDetails(Card c)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Card"]     = c,
+            ["AllCards"] = AllCards,
+            ["RomData"]  = RomData,
+        };
+        var options = new DialogOptions
+        {
+            CloseButton  = true, MaxWidth = MaxWidth.Medium,
+            FullWidth    = true, BackdropClick = true,
+        };
+        await DialogService.ShowAsync<CardDetailDialog>(c.Name, parameters, options);
+    }
+
+    /// <summary>
+    /// Renderiza um pool (deck/sapow/satec) ordenado por peso decrescente,
+    /// com porcentagem calculada em relação à soma do pool. Lida com
+    /// pools vazios mostrando mensagem clara.
+    /// </summary>
+    private RenderFragment RenderPool(ushort[] pool, string label) => @<text>
+        @{
+            int total = Sum(pool);
+            var entries = new List<(Card Card, ushort Weight, double Pct)>();
+            for (int i = 0; i < pool.Length; i++)
+            {
+                if (pool[i] == 0) continue;
+                if (i >= AllCards.Count) continue;
+                var pct = total > 0 ? (double)pool[i] * 100.0 / total : 0;
+                entries.Add((AllCards[i], pool[i], pct));
+            }
+            entries = entries.OrderByDescending(e => e.Weight)
+                             .ThenBy(e => e.Card.Name)
+                             .ToList();
+        }
+
+        @if (entries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning"
+                      Style="background:#2a2010; border:1px solid #c8a415;">
+                @if (RomData is null)
+                {
+                    <span>Nenhum dado de @label disponível.</span>
+                }
+                else
+                {
+                    <span>
+                        Não foi possível localizar informações de
+                        <strong>@label</strong> no JSON do MOD.
+                        <br/>
+                        Causa provável: o MOD tem drops criptografados
+                        (proteção do TEAONLINE), ou os offsets do MOD não
+                        bateram com o layout esperado durante a extração.
+                    </span>
+                }
+            </MudAlert>
+        }
+        else
+        {
+            <div class="d-flex align-center gap-2 mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.Casino" Style="color:#c8a415;" />
+                <MudText Typo="Typo.caption" Style="color:#888;">
+                    @entries.Count cartas distintas · soma de pesos: @total
+                </MudText>
+            </div>
+            <div class="card-grid"
+                 style="--tile-min:140px; --tile-max:200px;">
+                @foreach (var entry in entries)
+                {
+                    var entryRef = entry;
+                    <div class="card-tile"
+                         style="cursor:pointer; padding:6px;"
+                         @onclick="@(() => ShowCardDetails(entryRef.Card))"
+                         title="@entryRef.Card.GetTitle()">
+                        <CardCover Card="@entryRef.Card" Fill="true"
+                                   ImgClass="card-tile-img" />
+                        <div class="d-flex flex-column gap-1 mt-2">
+                            <MudText Typo="Typo.caption"
+                                     Style="color:#cfcfe0; text-align:center;
+                                            white-space:nowrap; overflow:hidden;
+                                            text-overflow:ellipsis;">
+                                @entryRef.Card.Name
+                            </MudText>
+                            <div class="d-flex align-center justify-space-between"
+                                 style="font-size:10px; color:#888;">
+                                <span>ATK <span style="color:#c8a415; font-weight:700;">@entryRef.Card.Attack</span></span>
+                                <span>DEF <span style="color:#64b5f6; font-weight:700;">@entryRef.Card.Defense</span></span>
+                            </div>
+                            <div class="d-flex align-center justify-center gap-1"
+                                 style="font-size:11px; color:#c8a415;">
+                                <span style="font-weight:700;">@entryRef.Pct.ToString("F2")%</span>
+                                <span style="color:#666;">(@entryRef.Weight / @total)</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </text>;
+}

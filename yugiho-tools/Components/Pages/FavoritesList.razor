@@ -1,0 +1,244 @@
+@page "/favorites/{ListId:guid}"
+@using yugiho_tools.Application.DTOs
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Application.UseCases
+@using yugiho_tools.Domain.Entities
+@inject FavoritesService    Favs
+@inject LocalizationService L
+@inject LoadedRomCache      RomCache
+@inject CurrentModContext   ModContext
+@inject NavigationManager   Nav
+@inject IDialogService      DialogService
+@inject ISnackbar           Snackbar
+@implements IDisposable
+
+<MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
+              Style="max-width:90%; margin-left:auto; margin-right:auto;">
+
+    @if (_list is null)
+    {
+        <MudAlert Severity="Severity.Warning">
+            Lista não encontrada.
+            <MudLink Href="/favorites">@L.T("common.close")</MudLink>
+        </MudAlert>
+    }
+    else
+    {
+        <div class="d-flex align-center mb-4 gap-2 flex-wrap">
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                           OnClick="@(() => Nav.NavigateTo("/favorites"))" />
+            <MudIcon Icon="@Icons.Material.Filled.Bookmark"
+                     Style="color:#c8a415; font-size:1.8rem;" />
+            <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                @_list.Name
+            </MudText>
+            <MudText Typo="Typo.caption" Style="color:#888;">
+                · @L.T("favorites.cardCount", _list.Cards.Count)
+            </MudText>
+
+            <MudSpacer />
+
+            <MudSelect T="SortMode" Value="_sortMode" ValueChanged="OnSortChanged"
+                       Variant="Variant.Outlined" Dense="true"
+                       Style="min-width:180px;"
+                       Adornment="Adornment.Start"
+                       AdornmentIcon="@Icons.Material.Filled.Sort">
+                <MudSelectItem T="SortMode" Value="SortMode.Stars">
+                    @L.T("favorites.list.sortByStars")
+                </MudSelectItem>
+                <MudSelectItem T="SortMode" Value="SortMode.Atk">
+                    @L.T("favorites.list.sortByAtk")
+                </MudSelectItem>
+                <MudSelectItem T="SortMode" Value="SortMode.Name">
+                    @L.T("favorites.list.sortByName")
+                </MudSelectItem>
+                <MudSelectItem T="SortMode" Value="SortMode.Added">
+                    @L.T("favorites.list.sortByAdded")
+                </MudSelectItem>
+            </MudSelect>
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="OpenCardPicker"
+                       Disabled="@(!RomCache.HasData)">
+                @L.T("favorites.list.addCards")
+            </MudButton>
+        </div>
+
+        @if (!RomCache.HasData)
+        {
+            <MudAlert Severity="Severity.Warning"
+                      Style="background:#2a2010; border:1px solid #c8a415;" Class="mb-3">
+                Carregue um MOD primeiro (em Fusões ou Cartas) para que as cartas
+                fiquem disponíveis para adicionar à lista.
+            </MudAlert>
+        }
+
+        @if (_list.Cards.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined"
+                      Style="background:#15152e; border-color:#2a2a6e;">
+                @L.T("favorites.list.empty")
+            </MudAlert>
+        }
+        else
+        {
+            <div class="card-grid"
+                 style="--tile-min:160px; --tile-max:240px;">
+                @foreach (var entry in SortedEntries())
+                {
+                    var entryRef = entry;
+                    var card = ResolveCard(entry.CardId);
+                    if (card is null) continue;
+
+                    <div class="card-tile"
+                         style="cursor:default; padding:6px;"
+                         title="@card.GetTitle()">
+                        <CardCover Card="@card" Fill="true" ImgClass="card-tile-img" />
+
+                        <div class="d-flex flex-column gap-1 mt-2">
+                            <MudText Typo="Typo.caption"
+                                     Style="color:#cfcfe0; text-align:center;
+                                            white-space:nowrap; overflow:hidden;
+                                            text-overflow:ellipsis;">
+                                @card.Name
+                            </MudText>
+                            <div class="d-flex align-center justify-space-between"
+                                 style="font-size:11px; color:#888;">
+                                <CardDescriptionText Text="@card.Description"></CardDescriptionText>
+                            </div>
+
+                            <div class="d-flex align-center justify-space-between gap-1">
+                                <MudRating SelectedValue="@entryRef.Stars"
+                                           SelectedValueChanged="@((int v) => OnStarsChanged(entryRef, v))"
+                                           MaxValue="5" Size="Size.Small"
+                                           Color="Color.Warning" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                               Size="Size.Small" Color="Color.Error"
+                                               Title="@L.T("favorites.list.removeCard")"
+                                               OnClick="@(() => RemoveCard(entryRef.CardId))" />
+                            </div>
+
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       Color="Color.Default"
+                                       OnClick="@(() => ShowCardDetails(card))">
+                                @L.T("common.edit").Replace(L.T("common.edit"), "")
+                                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" />
+                            </MudButton>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public Guid ListId { get; set; }
+
+    private FavoriteList? _list;
+    private SortMode _sortMode = SortMode.Stars;
+
+    public enum SortMode { Stars, Atk, Name, Added }
+
+    protected override void OnInitialized()
+    {
+        Favs.Changed     += OnFavsChanged;
+        RomCache.Changed += OnRomChanged;
+        L.Changed        += OnLocaleChanged;
+        Refresh();
+    }
+
+    protected override void OnParametersSet() => Refresh();
+
+    private void OnFavsChanged()  => InvokeAsync(() => { Refresh(); StateHasChanged(); });
+    private void OnRomChanged()   => InvokeAsync(StateHasChanged);
+    private void OnLocaleChanged() => InvokeAsync(StateHasChanged);
+
+    private void Refresh() => _list = Favs.GetById(ListId);
+
+    private void OnSortChanged(SortMode mode) { _sortMode = mode; StateHasChanged(); }
+
+    private IEnumerable<FavoriteEntry> SortedEntries()
+    {
+        if (_list is null) return [];
+        return _sortMode switch
+        {
+            SortMode.Stars => _list.Cards
+                .OrderByDescending(c => c.Stars)
+                .ThenBy(c => ResolveCard(c.CardId)?.Name ?? ""),
+            SortMode.Atk => _list.Cards
+                .OrderByDescending(c => ResolveCard(c.CardId)?.Attack ?? 0)
+                .ThenBy(c => ResolveCard(c.CardId)?.Name ?? ""),
+            SortMode.Name => _list.Cards
+                .OrderBy(c => ResolveCard(c.CardId)?.Name ?? ""),
+            SortMode.Added => _list.Cards
+                .OrderBy(c => c.AddedAt),
+            _ => _list.Cards,
+        };
+    }
+
+    private Card? ResolveCard(int cardId)
+    {
+        var data = RomCache.Current;
+        if (data is null) return null;
+        // CardId é 1-based; lista é 0-based.
+        var idx = cardId - 1;
+        return idx >= 0 && idx < data.Cards.Count ? data.Cards[idx] : null;
+    }
+
+    private void OnStarsChanged(FavoriteEntry entry, int stars)
+    {
+        if (_list is null) return;
+        Favs.SetStars(_list.Id, entry.CardId, stars);
+    }
+
+    private void RemoveCard(int cardId)
+    {
+        if (_list is null) return;
+        Favs.RemoveCard(_list.Id, cardId);
+    }
+
+    private async Task ShowCardDetails(Card c)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Card"]     = c,
+            ["AllCards"] = RomCache.Current?.Cards,
+            ["RomData"]  = RomCache.Current,
+        };
+        var options = new DialogOptions
+        {
+            CloseButton = true, MaxWidth = MaxWidth.Medium,
+            FullWidth = true, BackdropClick = true,
+        };
+        await DialogService.ShowAsync<CardDetailDialog>(c.Name, parameters, options);
+    }
+
+    private async Task OpenCardPicker()
+    {
+        if (_list is null || !RomCache.HasData) return;
+        var parameters = new DialogParameters
+        {
+            ["AllCards"]      = RomCache.Current!.Cards,
+            ["AlreadyInList"] = _list.Cards.Select(e => e.CardId).ToHashSet(),
+        };
+        var dlg = await DialogService.ShowAsync<CardPickerDialog>(
+            L.T("favorites.picker.title"),
+            parameters,
+            new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Large, FullWidth = true });
+        var res = await dlg.Result;
+        if (res?.Data is HashSet<int> picked && picked.Count > 0)
+        {
+            Favs.AddCards(_list.Id, picked);
+        }
+    }
+
+    public void Dispose()
+    {
+        Favs.Changed     -= OnFavsChanged;
+        RomCache.Changed -= OnRomChanged;
+        L.Changed        -= OnLocaleChanged;
+    }
+}

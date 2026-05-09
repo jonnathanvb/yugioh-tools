@@ -120,6 +120,9 @@ public class FileModRepository : IModRepository
     public string GetMrgFilePath(Mod mod) =>
         Path.Combine(ModRoot, mod.Slug, mod.MrgFileName);
 
+    public string GetModFolderPath(Mod mod) =>
+        Path.Combine(ModRoot, mod.Slug);
+
     private static async Task SaveIndexAsync(IReadOnlyList<Mod> mods)
     {
         Directory.CreateDirectory(ModRoot);

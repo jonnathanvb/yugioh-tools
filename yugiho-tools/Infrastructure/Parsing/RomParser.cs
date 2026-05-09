@@ -13,6 +13,18 @@ namespace yugiho_tools.Infrastructure.Parsing;
 /// </summary>
 public class RomParser : IRomParser
 {
+    /// <summary>
+    /// Último offset usado pra ler a tabela de duelistas no parse mais
+    /// recente. Igual ao do <see cref="RomOffsetProfile"/> em mods
+    /// padrão; diferente quando a auto-detecção entrou em ação. Exposto
+    /// pra páginas de debug poderem mostrar o valor real.
+    /// </summary>
+    public static int LastDuelistOffsetUsed { get; private set; }
+
+    /// <summary>True quando o último parse usou o offset auto-detectado
+    /// em vez do configurado no profile.</summary>
+    public static bool LastDuelistOffsetWasAutoDetected { get; private set; }
+
     private const int CardCount = 722;
     private const int ThumbWidth      = 40;
     private const int ThumbHeight     = 32;
@@ -38,7 +50,18 @@ public class RomParser : IRomParser
         progress?.Report(25);
 
         var duelists = ParseDuelists(game, mrg, charList, p);
+        progress?.Report(28);
+
+        ParseRituals(mrg, cards, p);
         progress?.Report(30);
+
+        // Posições dos slots da moldura (ATK/DEF/nome/atributo) ficam
+        // no SLUS — leio aqui pra que a UI possa renderizar overlays
+        // exatamente onde o jogo coloca o texto.
+        Application.Helpers.CardFrameRegistry.LoadPositions(game);
+        // Marca quais CardIds são resultado de fusão — necessário pro
+        // mapeamento "fusão → frame roxo" em MappingForCard.
+        Application.Helpers.CardFrameRegistry.LoadFusionResults(cards);
 
         return new RomData(cards, duelists);
     }
@@ -52,16 +75,37 @@ public class RomParser : IRomParser
         var p = profile ?? RomOffsetProfile.Default;
         byte[] mrg = await File.ReadAllBytesAsync(mrgFilePath);
         ParseThumbnails(mrg, cards, p, progress);
+        // Decodifica os "espelhos" (frames de carta) extraídos do MRG e
+        // popula o registry compartilhado. Sem isso o modo MOD da UI
+        // mostra só a arte 102×96 sem moldura.
+        Application.Helpers.CardFrameRegistry.Load(mrg);
         progress?.Report(100);
     }
 
     // ── Text decoding ───────────────────────────────────────────────────────
+    /// <summary>
+    /// Decodifica uma string FM. Bytes especiais:
+    /// <list type="bullet">
+    /// <item><c>0xFF</c>: terminador.</item>
+    /// <item><c>0xFE</c>: line break (vira espaço depois do <c>PrettifyDescription</c>).</item>
+    /// <item><c>0xFD AA BB</c>: <strong>POINTER pra outra string</strong>
+    /// — compressão por referência. Endereço alvo:
+    /// <c>(addr &amp; 0xFFFF0000) | (uint16(AA,BB) + 0x800)</c>. Após resolver
+    /// o pointer, a string atual é encerrada (não há texto após o pointer).</item>
+    /// <item><c>0xF8 KK ARG</c>: escape de cor/fonte (3 bytes total). Pulado.</item>
+    /// </list>
+    /// O algoritmo é o mesmo usado pelo pra ler descrições de mods
+    /// como TLM e Remaster. Sem o pointer 0xFD, descrições vinham truncadas
+    /// ou emendadas com texto de outras cartas.
+    /// </summary>
     private static string ReadName(
         ReadOnlySpan<byte> game, int addr, string[] charList, RomOffsetProfile p,
-        int maxBytes = 200)
+        int maxBytes = 600, int recursionDepth = 0)
     {
+        // Evita loop infinito se um mod tiver pointers circulares.
+        if (recursionDepth > 4) return "";
+
         var sb = new System.Text.StringBuilder();
-        var ctrl3 = p.TextControlCodes3;
 
         for (int i = 0; i < maxBytes; i++)
         {
@@ -70,11 +114,37 @@ public class RomParser : IRomParser
 
             byte bt = game[idx];
 
-            if (bt == 0xFF) break;          // string terminator
+            if (bt == 0xFF) break;
             if (bt == 0xFE) { sb.Append('\n'); continue; }
 
-            // Control codes (3-byte: byte + 2 args) — used by mods for color/font escapes.
-            if (Array.IndexOf(ctrl3, bt) >= 0) { i += 2; continue; }
+            // 0xFD: pointer pra outra string no mesmo bank de 64KB.
+            // Resolve recursivamente e termina esta string.
+            if (bt == 0xFD)
+            {
+                if (idx + 2 >= game.Length) break;
+                byte lo = game[idx + 1];
+                byte hi = game[idx + 2];
+                int  bank   = addr & unchecked((int)0xFFFF0000);
+                int  offset = ((lo | (hi << 8)) + 0x800) & 0xFFFF;
+                int  target = bank | offset;
+                if (target >= 0 && target < game.Length)
+                {
+                    sb.Append(ReadName(game, target, charList, p,
+                                       maxBytes, recursionDepth + 1));
+                }
+                break;
+            }
+
+            // 0xF8: escape de cor/fonte (3 bytes). Defesa: se algum arg é
+            // 0xFF, é o terminador real — quebra antes de pular.
+            if (bt == 0xF8)
+            {
+                byte arg1 = (idx + 1 < game.Length) ? game[idx + 1] : (byte)0;
+                byte arg2 = (idx + 2 < game.Length) ? game[idx + 2] : (byte)0;
+                if (arg1 == 0xFF || arg2 == 0xFF) break;
+                i += 2;
+                continue;
+            }
 
             string? c = bt < charList.Length ? charList[bt] : null;
             if (c is { Length: > 0 }) sb.Append(c);
@@ -135,7 +205,10 @@ public class RomParser : IRomParser
         for (int i = 0; i < CardCount; i++)
         {
             int off  = BinaryPrimitives.ReadUInt16LittleEndian(game.AsSpan(p.DescPtrs + i * 2, 2));
-            cards[i].Description = ReadName(game, p.DescTable + (off - p.DescPtrBase), charList, p);
+            // Descrições podem ter 300+ bytes em mods (efeitos elaborados,
+            // múltiplas linhas) — 200 do default cortava no meio.
+            cards[i].Description = ReadName(
+                game, p.DescTable + (off - p.DescPtrBase), charList, p, maxBytes: 600);
         }
 
         ParseFusions(mrg, cards, p);
@@ -174,7 +247,6 @@ public class RomParser : IRomParser
                 cards[i].FusionResults  .Add(((b0 >> 6 & 3) << 8 | b4) - 1);
                 num2--;
             }
-            cards[i].FusionCount = cards[i].FusionMaterials.Count;
         }
     }
 
@@ -228,6 +300,54 @@ public class RomParser : IRomParser
         }
     }
 
+    // ── Rituals (5 × uint16 LE = 10 bytes per entry) ───────────────────────
+    // Engenharia reversa do TEA Online Ritual Editor:
+    //   for each ritual entry e starting at p.Rituals:
+    //     ritualSpell = u16[+0] & 0x3FF       (1-based card id)
+    //     req1        = u16[+2]               (1-based)
+    //     req2        = u16[+4]               (1-based)
+    //     req3        = u16[+6]               (1-based)
+    //     result      = u16[+8]               (1-based)
+    //   loop termina quando todos os 5 são 0.
+    // Resultado é agregado no <see cref="Card.Rituals"/> da carta-result.
+    private const int RitualEntrySize = 10;
+    private const int CardIdMask10Bit = 0x3FF;
+    /// <summary>Limite defensivo pra não varrer o MRG inteiro se o
+    /// terminador zero estiver corrompido. FM clássico tem ~36 rituais;
+    /// 256 dá folga pra qualquer mod.</summary>
+    private const int MaxRitualEntries = 256;
+
+    private static void ParseRituals(byte[] mrg, List<Card> cards, RomOffsetProfile p)
+    {
+        if (p.Rituals < 0 || p.Rituals + RitualEntrySize > mrg.Length) return;
+
+        for (int e = 0; e < MaxRitualEntries; e++)
+        {
+            int off = p.Rituals + e * RitualEntrySize;
+            if (off + RitualEntrySize > mrg.Length) break;
+
+            int spell  = BinaryPrimitives.ReadUInt16LittleEndian(mrg.AsSpan(off + 0, 2)) & CardIdMask10Bit;
+            int req1   = BinaryPrimitives.ReadUInt16LittleEndian(mrg.AsSpan(off + 2, 2));
+            int req2   = BinaryPrimitives.ReadUInt16LittleEndian(mrg.AsSpan(off + 4, 2));
+            int req3   = BinaryPrimitives.ReadUInt16LittleEndian(mrg.AsSpan(off + 6, 2));
+            int result = BinaryPrimitives.ReadUInt16LittleEndian(mrg.AsSpan(off + 8, 2));
+
+            // Sentinel: tudo zero = fim da tabela.
+            if (spell == 0 && req1 == 0 && req2 == 0 && req3 == 0 && result == 0) break;
+
+            // Indexa por card 0-based; ROM armazena 1-based.
+            int resultIdx = result - 1;
+            if (resultIdx < 0 || resultIdx >= cards.Count) continue;
+
+            cards[resultIdx].Rituals.Add(new RitualRecipe
+            {
+                Ingredients = new List<int> { spell - 1, req1 - 1, req2 - 1, req3 - 1 },
+                Result      = resultIdx,
+            });
+            cards[resultIdx].IsRitual = true;
+        }
+    }
+
     // ── Duelists (names + decks + 3 drop pools) ────────────────────────────
     private static List<Duelist> ParseDuelists(
         byte[] game, byte[] mrg, string[] charList, RomOffsetProfile p)
@@ -245,6 +365,46 @@ public class RomParser : IRomParser
         }
         ptrs[p.DuelistCount] = ptrs[p.DuelistCount - 1] + 64; // soft cap for last
 
+        // 1) Tenta o offset configurado (FM-US default ou override do profile).
+        // 2) Se nenhum deck somou plausivelmente, escaneia o MRG procurando
+        //    a tabela em outro endereço — cobre mods que relocaram (LMFV,
+        //    Remaster, etc.).
+        int duelistBase = p.DuelistData;
+        bool autoDetected = false;
+        if (!LooksLikeValidDuelistBase(mrg, duelistBase, p))
+        {
+            // Antes de fazer scan completo, testa candidatos óbvios:
+            // mods conhecidos (TLM) usam DuelistData - 0x1800. Tentar
+            // primeiro evita varredura desnecessária.
+            int[] candidates = {
+                duelistBase - 0x1800,   // TLM: tabela 1 slot ANTES
+                duelistBase + 0x1800,   // hipotético: 1 slot DEPOIS
+            };
+
+            foreach (var c in candidates)
+            {
+                if (c >= 0 && LooksLikeValidDuelistBase(mrg, c, p))
+                {
+                    duelistBase  = c;
+                    autoDetected = true;
+                    break;
+                }
+            }
+
+            // Fallback: varredura completa do MRG procurando a assinatura.
+            if (!autoDetected)
+            {
+                var detected = DuelistOffsetDetector.Detect(mrg);
+                if (detected.HasValue)
+                {
+                    duelistBase  = detected.Value;
+                    autoDetected = true;
+                }
+            }
+        }
+        LastDuelistOffsetUsed             = duelistBase;
+        LastDuelistOffsetWasAutoDetected  = autoDetected;
+
         for (int i = 0; i < p.DuelistCount; i++)
         {
             var d = new Duelist { Id = i };
@@ -254,7 +414,7 @@ public class RomParser : IRomParser
             int maxLen   = Math.Max(2, Math.Min(64, nextAddr - addr));
             d.Name = ReadName(game, addr, charList, p, maxLen).TrimEnd();
 
-            int baseAddr = p.DuelistData + p.DuelistStride * i;
+            int baseAddr = duelistBase + p.DuelistStride * i;
             ReadPool(mrg, baseAddr + p.DuelistDeckOff,   d.Deck);
             ReadPool(mrg, baseAddr + p.DuelistSaPowOff,  d.SaPow);
             ReadPool(mrg, baseAddr + p.DuelistBcdPowOff, d.BcdPow);
@@ -273,13 +433,29 @@ public class RomParser : IRomParser
         return list;
     }
 
+    /// <summary>Verifica rapidamente se o offset configurado realmente
+    /// aponta pra tabela de duelistas — basta o deck do duelista 0
+    /// somar dentro de uma faixa plausível (~2048).</summary>
+    private static bool LooksLikeValidDuelistBase(
+        byte[] mrg, int baseOff, RomOffsetProfile p)
+    {
+        int deckOff = baseOff + p.DuelistDeckOff;
+        if (deckOff < 0 || deckOff + 1444 > mrg.Length) return false;
+        long sum = 0;
+        var span = mrg.AsSpan(deckOff, 1444);
+        for (int i = 0; i < 722; i++)
+            sum += BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(i * 2, 2));
+        return sum >= 1500 && sum <= 2800;
+    }
+
     private static void ClearIfImplausible(ushort[] pool)
     {
         long sum = 0;
         foreach (var v in pool) sum += v;
-        // Real FM drop pools sum to exactly 2048. Allow a bit of slack for variants
-        // that may add 1 or omit padding; reject anything outside a plausible window.
-        if (sum < 1024 || sum > 4096) Array.Clear(pool, 0, pool.Length);
+        // FM-US usa denominador 2048; alguns mods (incluindo Remaster
+        // e variantes do TLM) usam 4096. Janela 512..8192 cobre os dois,
+        // recusando lixo de offsets errados (que somam dezenas de milhões).
+        if (sum < 512 || sum > 8192) Array.Clear(pool, 0, pool.Length);
     }
 
     private static void ReadPool(byte[] mrg, int offset, ushort[] dst)
@@ -305,6 +481,8 @@ public class RomParser : IRomParser
             var clut   = mrg.AsSpan(pixelStart + ThumbPixelCount, ClutSize);
 
             var gray = new byte[ThumbPixelCount];
+            // BGR top-down (3 bytes/px) — usado para gerar o BMP.
+            var bgr  = new byte[ThumbPixelCount * 3];
             for (int px = 0; px < ThumbPixelCount; px++)
             {
                 ushort color = BinaryPrimitives.ReadUInt16LittleEndian(clut.Slice(pixels[px] * 2, 2));
@@ -312,8 +490,45 @@ public class RomParser : IRomParser
                 byte g = (byte)((color >> 5 & 31) * 8);
                 byte b = (byte)((color >> 10 & 31) * 8);
                 gray[px] = (byte)(0.299 * r + 0.587 * g + 0.114 * b);
+
+                int o = px * 3;
+                bgr[o + 0] = b;
+                bgr[o + 1] = g;
+                bgr[o + 2] = r;
             }
             cards[i].ThumbnailPixels = gray;
+
+            // Arte HD (102×96) — mesma slot de 14336 bytes da thumbnail,
+            // só que começando em outro endereço base (CardArt). É o que
+            // o jogo mostra no detalhe da carta (Triangle).
+            int artPixelCount = p.CardArtWidth * p.CardArtHeight;
+            int artBase = p.CardArt + i * p.ThumbnailStride;
+            if (artBase + artPixelCount + ClutSize <= mrg.Length)
+            {
+                var artPixels = mrg.AsSpan(artBase, artPixelCount);
+                var artClut   = mrg.AsSpan(artBase + artPixelCount, ClutSize);
+                var artBgr    = new byte[artPixelCount * 3];
+                for (int px = 0; px < artPixelCount; px++)
+                {
+                    ushort color = BinaryPrimitives.ReadUInt16LittleEndian(artClut.Slice(artPixels[px] * 2, 2));
+                    byte r = (byte)((color & 31) * 8);
+                    byte g = (byte)((color >> 5  & 31) * 8);
+                    byte b = (byte)((color >> 10 & 31) * 8);
+                    int o = px * 3;
+                    artBgr[o + 0] = b;
+                    artBgr[o + 1] = g;
+                    artBgr[o + 2] = r;
+                }
+                cards[i].ModImageDataUrl = yugiho_tools.Application.Helpers.BmpEncoder
+                    .ToDataUrl(artBgr, p.CardArtWidth, p.CardArtHeight);
+            }
+            else
+            {
+                // Fallback: se o offset HD estourar (ROM pequeno/exótico),
+                // usa o thumbnail mesmo — melhor algo do que nada.
+                cards[i].ModImageDataUrl = yugiho_tools.Application.Helpers.BmpEncoder
+                    .ToDataUrl(bgr, ThumbWidth, ThumbHeight);
+            }
         }
     }
 

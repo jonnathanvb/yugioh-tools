@@ -136,27 +136,154 @@ html, body {
     background: #141428;
     border: 1px solid #c8a41560;
     border-radius: 4px;
-    cursor: pointer;
     transition: border-color 0.15s, background 0.15s;
 }
 
 .cart-item:hover {
-    border-color: #f44336;
-    background: #2a1010;
+    border-color: #c8a415;
+    background: #1a1a3a;
 }
 
-.cart-item .cart-close {
+/* Overlay com os botões de ação — só fica visível no hover. */
+.cart-item .cart-actions {
     position: absolute;
-    top: -6px;
-    right: -6px;
-    color: #f44336;
-    background: #0d0d1a;
-    border-radius: 50%;
-    font-size: 14px !important;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 3px;
     opacity: 0;
+    pointer-events: none; /* só responde a mouse quando visível */
     transition: opacity 0.15s;
 }
 
-.cart-item:hover .cart-close {
+.cart-item:hover .cart-actions {
     opacity: 1;
+    pointer-events: auto;
 }
+
+.cart-item .cart-action-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    transition: transform 0.1s, box-shadow 0.1s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.cart-item .cart-action-btn:hover {
+    transform: scale(1.1);
+}
+
+.cart-item .cart-action-btn.info {
+    background: #1976d2;
+}
+
+.cart-item .cart-action-btn.remove {
+    background: #d32f2f;
+}
+
+/* Caixa de cada combinação de fusão (A + B → C). Borda discreta destaca
+   o agrupamento; hover sobe a saturação pra indicar que tem interatividade
+   nas cartas internas (sem que a caixa em si seja clicável). */
+.fusion-combo {
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.fusion-combo:hover {
+    border-color: #c8a415;
+    background: #1a1a3a;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Frame da carta extraído do ROM (modo MOD em CardCover). O <div>
+   container tem aspect-ratio fixo 144:200 + container-type:inline-size,
+   filhos posicionados em % escalam automaticamente com o tamanho final.
+   ────────────────────────────────────────────────────────────────── */
+.fm-frame {
+    user-select: none;
+}
+
+.fm-frame-img,
+.fm-frame-art {
+    image-rendering: pixelated;
+    display: block;
+}
+
+.fm-frame-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.fm-frame-art {
+    object-fit: cover;
+}
+
+/* Sprites extraídos (nome, atributo, estrela) agora usam BMP 32bpp com
+   canal alpha — o fundo preto fica genuinamente transparente, sem
+   precisar de mix-blend-mode. */
+.fm-frame-name-img,
+.fm-frame-attr-img {
+    object-fit: contain;
+    image-rendering: pixelated;
+    pointer-events: none;
+}
+
+.fm-frame-stars {
+    pointer-events: none;
+}
+
+/* Texto sobreposto ao frame (nome, ATK, DEF). Tipografia escala com a
+   largura do container via cqw — 100cqw = largura do .fm-frame.
+   Cores escuras com halo claro porque os slots no body têm fundo
+   bege/marrom (frame original FM): branco fica invisível. */
+.fm-frame-text {
+    color: #1a0a02;
+    font-family: 'Arial Narrow', Arial, sans-serif;
+    font-weight: 800;
+    text-shadow:
+         1px  0   0 rgba(255, 235, 200, 0.95),
+        -1px  0   0 rgba(255, 235, 200, 0.95),
+         0    1px 0 rgba(255, 235, 200, 0.95),
+         0   -1px 0 rgba(255, 235, 200, 0.95);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+    line-height: 1;
+}
+
+.fm-frame-name {
+    font-size: 5cqw;
+    padding: 0 2%;
+    justify-content: center;
+}
+
+.fm-frame-atk,
+.fm-frame-def {
+    font-size: 6.5cqw;
+    justify-content: center;
+    letter-spacing: -0.5px;
+}
+
+/* Modal de detalhes da carta — ocupa 80% da janela em ambas as dimensões.
+   Usa !important para sobrescrever as classes de tamanho do MudBlazor
+   (MaxWidth.Medium etc. aplicam max-width via classe .mud-dialog-width-md). */
+.mud-dialog.card-detail-dialog {
+    width: 80vw !important;
+    max-width: 80vw !important;
+    max-height: 90vh !important;
+}
+
