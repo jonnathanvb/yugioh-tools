@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using OpenCvSharp;
+using yugiho_tools.Application.Helpers;
 using yugiho_tools.Domain.Entities;
 using yugiho_tools.Domain.Interfaces;
-using yugiho_tools.Infrastructure.ScreenCapture;
 using OcvSize  = OpenCvSharp.Size;
 using OcvPoint = OpenCvSharp.Point;
 
@@ -22,10 +22,13 @@ public class OpenCvCardDetector : ICardDetector
 
     public IReadOnlyList<int> DetectCards(byte[] frameBytes, IReadOnlyList<Card> cards)
     {
-        var (data, width, height, stride) = Win32Helper.DecodeFrame(frameBytes);
+        var (data, width, height, stride) = FrameCodec.Decode(frameBytes);
 
         var handle = GCHandle.Alloc(data, GCHandleType.Pinned);
-        using var srcMat = Mat.FromPixelData(height, width, MatType.CV_8UC3, handle.AddrOfPinnedObject(), stride);
+        // OpenCvSharp4 4.8.x não tem Mat.FromPixelData (adicionado em 4.10).
+        // Usar o construtor que aceita IntPtr é equivalente: o Mat fica
+        // como view sobre o buffer pinned, sem copiar.
+        using var srcMat = new Mat(height, width, MatType.CV_8UC3, handle.AddrOfPinnedObject(), stride);
         handle.Free();
 
         using var resized = new Mat();

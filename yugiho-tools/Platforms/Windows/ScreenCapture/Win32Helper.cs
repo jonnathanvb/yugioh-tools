@@ -1,9 +1,12 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using yugiho_tools.Application.Helpers;
 
 namespace yugiho_tools.Infrastructure.ScreenCapture;
 
+[SupportedOSPlatform("windows")]
 internal static class Win32Helper
 {
     [DllImport("user32.dll")]
@@ -69,34 +72,11 @@ internal static class Win32Helper
             int stride = bmpData.Stride;
             byte[] bytes = new byte[Math.Abs(stride) * height];
             Marshal.Copy(bmpData.Scan0, bytes, 0, bytes.Length);
-            return EncodeFrame(bytes, width, height, stride);
+            return FrameCodec.Encode(bytes, width, height, stride);
         }
         finally
         {
             bmp.UnlockBits(bmpData);
         }
-    }
-
-    // Simple frame format: [int width][int height][int stride][raw BGR bytes]
-    private static byte[] EncodeFrame(byte[] raw, int width, int height, int stride)
-    {
-        using var ms = new MemoryStream();
-        using var bw = new BinaryWriter(ms);
-        bw.Write(width);
-        bw.Write(height);
-        bw.Write(stride);
-        bw.Write(raw);
-        return ms.ToArray();
-    }
-
-    public static (byte[] data, int width, int height, int stride) DecodeFrame(byte[] frame)
-    {
-        using var ms = new MemoryStream(frame);
-        using var br = new BinaryReader(ms);
-        int width  = br.ReadInt32();
-        int height = br.ReadInt32();
-        int stride = br.ReadInt32();
-        byte[] data = br.ReadBytes((int)(ms.Length - ms.Position));
-        return (data, width, height, stride);
     }
 }

@@ -1,11 +1,14 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using yugiho_tools.Application.Helpers;
 using yugiho_tools.Domain.Interfaces;
 using ImageFormat = System.Drawing.Imaging.ImageFormat;
 
 namespace yugiho_tools.Infrastructure.ScreenCapture;
 
+[SupportedOSPlatform("windows")]
 public class WindowsScreenCapture : IScreenCapture
 {
     public IReadOnlyList<string> GetWindowTitles() => Win32Helper.GetVisibleWindowTitles();
@@ -14,7 +17,7 @@ public class WindowsScreenCapture : IScreenCapture
 
     public void SaveFrameToFile(byte[] frame, string path)
     {
-        var (data, width, height, stride) = Win32Helper.DecodeFrame(frame);
+        var (data, width, height, stride) = FrameCodec.Decode(frame);
 
         using var bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb);
         var rect = new Rectangle(0, 0, width, height);

@@ -1,28 +1,18 @@
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
-using ImageFormat = System.Drawing.Imaging.ImageFormat;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using IsPngEncoder = SixLabors.ImageSharp.Formats.Png.PngEncoder;
 
 namespace yugiho_tools.Application.Helpers;
 
 /// <summary>
-/// Codificador PNG sobre <see cref="Bitmap"/> do GDI+. Substitui o
-/// <c>BmpEncoder</c> antigo: gera arquivos ~5-10× menores (compressão
-/// deflate), suporta canal alpha de forma universal (sem precisar de
-/// <c>mix-blend-mode</c> no CSS pra esconder fundo preto) e é entendido
-/// por qualquer ferramenta de imagem.
+/// Codificador PNG cross-platform (Windows + macOS via MacCatalyst) usando
+/// SixLabors.ImageSharp. Substitui o impl anterior em System.Drawing/GDI+
+/// que dependia de libgdiplus em plataformas não-Windows.
 ///
 /// Entrada esperada: buffers BGR (24bpp) ou BGRA (32bpp) <strong>top-down</strong>,
-/// ou seja, primeira linha = topo da imagem. <c>Format32bppArgb</c> e
-/// <c>Format24bppRgb</c> do GDI+ armazenam pixels em memória little-endian
-/// como (B, G, R, A) e (B, G, R) respectivamente — então o memcpy é direto.
-///
-/// O projeto já é Windows-only (<c>net10.0-windows10.0.19041.0</c>),
-/// portanto a dependência de <c>System.Drawing.Common</c> não restringe
-/// nada que já não estivesse restrito.
+/// ou seja, primeira linha = topo da imagem. ImageSharp usa pixel format
+/// canônico RGBA (não BGRA) — convertemos durante o load row-by-row.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public static class PngEncoder
 {
     public static string ToDataUrl24(ReadOnlySpan<byte> bgrTopDown, int width, int height)
@@ -34,69 +24,54 @@ public static class PngEncoder
     /// <summary>BGR top-down (3 bytes/pixel) → PNG sem alpha.</summary>
     public static byte[] RawBytes24(ReadOnlySpan<byte> bgrTopDown, int width, int height)
     {
-        using var bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb);
-        var rect = new Rectangle(0, 0, width, height);
-        var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-        try
+        // Span não pode ser capturado em lambda — copia para array antes.
+        var src = bgrTopDown.ToArray();
+        using var image = new Image<Rgb24>(width, height);
+        image.ProcessPixelRows(accessor =>
         {
-            CopyTopDownToBitmap(bgrTopDown, data, bytesPerPixel: 3);
-        }
-        finally
-        {
-            bmp.UnlockBits(data);
-        }
-        return EncodePng(bmp);
+            int rowLen = width * 3;
+            for (int y = 0; y < accessor.Height; y++)
+            {
+                var dstRow = accessor.GetRowSpan(y);
+                int srcOffset = y * rowLen;
+                for (int x = 0; x < width; x++)
+                {
+                    int o = srcOffset + x * 3;
+                    // ImageSharp Rgb24 = (R, G, B); fonte é BGR.
+                    dstRow[x] = new Rgb24(src[o + 2], src[o + 1], src[o]);
+                }
+            }
+        });
+        return EncodePng(image);
     }
 
     /// <summary>BGRA top-down (4 bytes/pixel) → PNG com alpha.</summary>
     public static byte[] RawBytes32(ReadOnlySpan<byte> bgraTopDown, int width, int height)
     {
-        using var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-        var rect = new Rectangle(0, 0, width, height);
-        var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        try
+        var src = bgraTopDown.ToArray();
+        using var image = new Image<Rgba32>(width, height);
+        image.ProcessPixelRows(accessor =>
         {
-            CopyTopDownToBitmap(bgraTopDown, data, bytesPerPixel: 4);
-        }
-        finally
-        {
-            bmp.UnlockBits(data);
-        }
-        return EncodePng(bmp);
+            int rowLen = width * 4;
+            for (int y = 0; y < accessor.Height; y++)
+            {
+                var dstRow = accessor.GetRowSpan(y);
+                int srcOffset = y * rowLen;
+                for (int x = 0; x < width; x++)
+                {
+                    int o = srcOffset + x * 4;
+                    // ImageSharp Rgba32 = (R, G, B, A); fonte é BGRA.
+                    dstRow[x] = new Rgba32(src[o + 2], src[o + 1], src[o], src[o + 3]);
+                }
+            }
+        });
+        return EncodePng(image);
     }
 
-    /// <summary>Copia linha-a-linha respeitando o <c>Stride</c> que o GDI+
-    /// alinha a 4 bytes — sem isso, larguras não-múltiplas de 4 ficam com
-    /// linhas deslocadas e a imagem sai "escorregando".</summary>
-    private static void CopyTopDownToBitmap(ReadOnlySpan<byte> source, BitmapData target, int bytesPerPixel)
-    {
-        int width   = target.Width;
-        int height  = target.Height;
-        int rowLen  = width * bytesPerPixel;
-        int stride  = target.Stride;
-        nint scan0  = target.Scan0;
-
-        // Buffer temporário só se stride != rowLen (precisa zerar padding).
-        // Quando coincidem (32bpp em qualquer largura, 24bpp em largura
-        // múltipla de 4), copia direto sem alocar.
-        if (stride == rowLen)
-        {
-            Marshal.Copy(source.ToArray(), 0, scan0, rowLen * height);
-            return;
-        }
-
-        var rowBuf = new byte[rowLen];
-        for (int y = 0; y < height; y++)
-        {
-            source.Slice(y * rowLen, rowLen).CopyTo(rowBuf);
-            Marshal.Copy(rowBuf, 0, scan0 + y * stride, rowLen);
-        }
-    }
-
-    private static byte[] EncodePng(Bitmap bmp)
+    private static byte[] EncodePng<TPixel>(Image<TPixel> image) where TPixel : unmanaged, IPixel<TPixel>
     {
         using var ms = new MemoryStream();
-        bmp.Save(ms, ImageFormat.Png);
+        image.Save(ms, new IsPngEncoder());
         return ms.ToArray();
     }
 }

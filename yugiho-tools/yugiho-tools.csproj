@@ -1,10 +1,19 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
 
     <PropertyGroup>
-        <!-- Windows-only app: native deps (Win32 RegisterHotKey, XInput,
-             OpenCvSharp4.Windows, screen capture) make Android/iOS/MacCatalyst
-             non-applicable. -->
-        <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+        <!-- Multi-plataforma: Windows (full feature) + macOS via MacCatalyst.
+             - Windows: screen capture + hotkey global + gamepad XInput + auto-update Velopack.
+             - MacCatalyst: screen capture via CoreGraphics; hotkey/gamepad/auto-update no-op
+               (limitação documentada — sandbox MacCatalyst restringe APIs globais).
+
+             IMPORTANTE: cada TFM só é incluído no host que consegue compilá-lo:
+             - Windows TFM precisa do Windows App SDK (e XamlCompiler.exe nativo).
+             - MacCatalyst TFM precisa do Xcode + Mac SDK.
+             Sem essa condicional, restaurar maccatalyst em Windows tenta puxar
+             runtime packs do Mono que vêm via workload manifest e quebra com
+             NU1101/NU1102 ("Mono.win-x64 10.0.7" não existe no nuget.org). -->
+        <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
+        <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
 
         <OutputType>Exe</OutputType>
         <RootNamespace>yugiho_tools</RootNamespace>
@@ -32,7 +41,10 @@
         <!-- Versions -->
         <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
         <ApplicationVersion>1</ApplicationVersion>
+    </PropertyGroup>
 
+    <!-- ─────────── Windows-only properties ─────────── -->
+    <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
         <!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
         <WindowsPackageType>None</WindowsPackageType>
 
@@ -52,34 +64,70 @@
         <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     </PropertyGroup>
 
+    <!-- ─────────── MacCatalyst-only properties ─────────── -->
+    <PropertyGroup Condition="$(TargetFramework.Contains('-maccatalyst'))">
+        <!-- macOS 13 (Ventura) cobre Apple Silicon e Intel modernos com
+             MacCatalyst 16+. Reduz versão mínima se precisar suportar Macs
+             mais antigos. -->
+        <SupportedOSPlatformVersion>16.0</SupportedOSPlatformVersion>
+        <!-- Apple Silicon primeiro; adicione maccatalyst-x64 se precisar
+             rodar em Mac Intel. -->
+        <RuntimeIdentifiers>maccatalyst-arm64</RuntimeIdentifiers>
+    </PropertyGroup>
+
     <ItemGroup>
         <!-- App Icon -->
-        <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4"/>
+        <MauiIcon Include="Resources/AppIcon/appicon.svg" ForegroundFile="Resources/AppIcon/appiconfg.svg" Color="#512BD4"/>
 
         <!-- Splash Screen -->
-        <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128"/>
+        <MauiSplashScreen Include="Resources/Splash/splash.svg" Color="#512BD4" BaseSize="128,128"/>
 
         <!-- Images -->
-        <MauiImage Include="Resources\Images\*"/>
-        <MauiImage Update="Resources\Images\dotnet_bot.svg" BaseSize="168,208"/>
+        <MauiImage Include="Resources/Images/*"/>
+        <MauiImage Update="Resources/Images/dotnet_bot.svg" BaseSize="168,208"/>
 
         <!-- Custom Fonts -->
-        <MauiFont Include="Resources\Fonts\*"/>
+        <MauiFont Include="Resources/Fonts/*"/>
 
-        <!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
-        <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)"/>
+        <!-- Raw Assets (also remove the "Resources/Raw" prefix). Forward slashes
+             evitam o bug do MAUI no MacCatalyst que computa paths com `../`
+             quando o glob usa backslash em filesystem POSIX. -->
+        <MauiAsset Include="Resources/Raw/**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)"/>
     </ItemGroup>
 
+    <!-- ─────────── Pacotes comuns a todas as plataformas ─────────── -->
     <ItemGroup>
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)"/>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)"/>
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0"/>
         <PackageReference Include="MudBlazor" Version="8.3.0"/>
+        <!-- ImageSharp substitui System.Drawing.Common — encoder PNG cross-platform,
+             sem dependência nativa (libgdiplus em Mac/Linux é frágil). -->
+        <!-- 3.1.12 = última patch da linha 3.1 LTS sem CVEs abertos. -->
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12"/>
+    </ItemGroup>
+
+    <!-- ─────────── Pacotes Windows-only ─────────── -->
+    <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
         <PackageReference Include="OpenCvSharp4.Windows" Version="4.10.0.20241208"/>
+        <!-- GDI+ wrapper — usado por Win32Helper.CopyFromScreen para capturar
+             janela via BitBlt. Não há equivalente cross-platform sem WGC. -->
         <PackageReference Include="System.Drawing.Common" Version="10.0.0"/>
         <!-- Auto-update via GitHub Releases. Velopack lê o RELEASES file
-             do release atual e aplica patches de forma incremental. -->
+             do release atual e aplica patches de forma incremental.
+             Disponível apenas no Windows — Mac usa NoOpUpdateService. -->
         <PackageReference Include="Velopack" Version="0.0.1298"/>
+    </ItemGroup>
+
+    <!-- ─────────── Pacotes MacCatalyst-only ─────────── -->
+    <ItemGroup Condition="$(TargetFramework.Contains('-maccatalyst'))">
+        <!-- OpenCvSharp4 (managed) + runtime nativo do macOS arm64.
+             O runtime.osx_arm64 só foi publicado até 4.8.1 — a versão
+             managed precisa ficar alinhada (4.8.0 é a release pareada).
+             API usada por OpenCvCardDetector (Mat.FromPixelData, MatchTemplate,
+             Resize, CvtColor) está disponível desde 4.7+. -->
+        <PackageReference Include="OpenCvSharp4" Version="4.8.0.20230708"/>
+        <PackageReference Include="OpenCvSharp4.runtime.osx_arm64" Version="4.8.1"/>
     </ItemGroup>
 
 </Project>
