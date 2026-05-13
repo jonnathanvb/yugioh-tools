@@ -6,7 +6,6 @@ using yugiho_tools.Domain.Interfaces;
 using yugiho_tools.Infrastructure.CardDetection;
 using yugiho_tools.Infrastructure.Parsing;
 using yugiho_tools.Infrastructure.ScreenCapture;
-using yugiho_tools.Infrastructure.Shortcuts;
 using yugiho_tools.Infrastructure.Storage;
 
 namespace yugiho_tools;
@@ -27,10 +26,15 @@ public static class MauiProgram
         builder.Services.AddSingleton<IRomParser,         RomParser>();
         builder.Services.AddSingleton<IMemoryCardParser,  EpsxeMemoryCardParser>();
         builder.Services.AddSingleton<IFusionEngine,      FusionEngine>();
+#if WINDOWS
         builder.Services.AddSingleton<IScreenCapture, WindowsScreenCapture>();
+        builder.Services.AddSingleton<IGlobalShortcutService, yugiho_tools.Infrastructure.Shortcuts.WindowsGlobalShortcutService>();
+#elif MACCATALYST
+        builder.Services.AddSingleton<IScreenCapture, MacScreenCapture>();
+        builder.Services.AddSingleton<IGlobalShortcutService, yugiho_tools.Infrastructure.Shortcuts.MacGlobalShortcutService>();
+#endif
         builder.Services.AddSingleton<ICardDetector,  OpenCvCardDetector>();
         builder.Services.AddSingleton<IModRepository, FileModRepository>();
-        builder.Services.AddSingleton<IGlobalShortcutService, WindowsGlobalShortcutService>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.AppSettings>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.CurrentModContext>();
         builder.Services.AddSingleton<yugiho_tools.Application.Services.ModCatalogService>();

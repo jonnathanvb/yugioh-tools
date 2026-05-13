@@ -1,5 +1,7 @@
+#if WINDOWS
 using Velopack;
 using Velopack.Sources;
+#endif
 
 namespace yugiho_tools.Application.Services;
 
@@ -10,11 +12,15 @@ public record UpdateResult(bool Updated, string Message);
 /// GitHub e aplica atualização incremental quando disponível.
 /// Em build local (sem manifest do Velopack instalado), <c>IsInstalled</c>
 /// é falso e o método retorna mensagem informativa em vez de falhar.
+///
+/// No macOS o Velopack não está disponível — o método retorna sempre
+/// <c>(false, "...")</c>. Para auto-update no Mac veja MIGRATION_NOTES
+/// (Sparkle / SUUpdater seria o caminho equivalente).
 /// </summary>
 public class UpdateService
 {
+#if WINDOWS
     private const string GitHubRepoUrl = "https://github.com/jonnathanvb/yugiho";
-
     private readonly UpdateManager _manager;
 
     public UpdateService()
@@ -42,4 +48,10 @@ public class UpdateService
         _manager.ApplyUpdatesAndRestart(info);
         return new UpdateResult(true, $"Atualizado para {info.TargetFullRelease.Version}. Reiniciando...");
     }
+#else
+    public Task<UpdateResult> CheckAndApplyAsync()
+        => Task.FromResult(new UpdateResult(false,
+            "Auto-update está disponível apenas no Windows. " +
+            "No macOS, baixe a nova versão manualmente em GitHub Releases."));
+#endif
 }
