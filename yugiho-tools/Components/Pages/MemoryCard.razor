@@ -262,6 +262,84 @@
                     }
                 </MudTabPanel>
 
+                <!-- ═══════════════ Tab 2: Save Counter ═══════════════ -->
+                <MudTabPanel Text="Save Counter" Icon="@Icons.Material.Filled.Numbers">
+                    <MudPaper Class="pa-4" Elevation="3"
+                              Style="background:#141428; border:1px solid #2a2a6e;">
+                        <MudText Typo="Typo.body2" Style="color:#aaa;" Class="mb-2">
+                            Corrige o erro <strong>"Unable to locate load data!"</strong>
+                            que aparece quando um savestate antigo é carregado e o contador
+                            em RAM fica menor que o gravado no memory card. Reduza o valor
+                            aqui pra destravar o load.
+                        </MudText>
+
+                        @if (_counter is null)
+                        {
+                            <MudAlert Severity="Severity.Warning"
+                                      Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
+                                Não foi possível ler o contador deste save.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudGrid Spacing="2" Class="mb-3">
+                                <MudItem xs="12" md="4">
+                                    <MudPaper Class="pa-3" Elevation="0"
+                                              Style="background:#0a0a18; border:1px solid #1e1e4a;">
+                                        <MudText Typo="Typo.overline" Style="color:#888;">
+                                            Posição A (@($"0x{_counter.OffsetA:X}"))
+                                        </MudText>
+                                        <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                                            @_counter.Counter
+                                        </MudText>
+                                    </MudPaper>
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudPaper Class="pa-3" Elevation="0"
+                                              Style="background:#0a0a18; border:1px solid #1e1e4a;">
+                                        <MudText Typo="Typo.overline" Style="color:#888;">
+                                            Posição B (@($"0x{_counter.OffsetB:X}"))
+                                        </MudText>
+                                        <MudText Typo="Typo.h5" Style="color:#c8a415; font-weight:700;">
+                                            @_counter.CounterCheck
+                                        </MudText>
+                                    </MudPaper>
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudPaper Class="pa-3" Elevation="0"
+                                              Style="background:#0a0a18; border:1px solid #1e1e4a;">
+                                        <MudText Typo="Typo.overline" Style="color:#888;">
+                                            Backup
+                                        </MudText>
+                                        <MudText Typo="Typo.body2" Style="color:#888;" Class="mt-1">
+                                            Espelhado em <code>+0x680</code> (re-escrito junto).
+                                        </MudText>
+                                    </MudPaper>
+                                </MudItem>
+                            </MudGrid>
+
+                            <div class="d-flex align-center gap-3 flex-wrap">
+                                <MudNumericField T="int" @bind-Value="_newCounter"
+                                                 Label="Novo valor (0–255)"
+                                                 Min="0" Max="255"
+                                                 Variant="Variant.Outlined"
+                                                 Style="max-width:200px;" />
+
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Filled.Save"
+                                           OnClick="SaveCounter"
+                                           Disabled="@_isSavingCounter">
+                                    @(_isSavingCounter ? "Salvando..." : "Salvar contador")
+                                </MudButton>
+
+                                <MudText Typo="Typo.caption" Style="color:#888;">
+                                    Backup automático é criado em <code>.bak-yyyyMMdd_HHmmss</code>.
+                                </MudText>
+                            </div>
+                        }
+                    </MudPaper>
+                </MudTabPanel>
+
             </MudTabs>
         }
     }
@@ -298,6 +376,11 @@
     private bool _isParsing;
     private MemoryCardParseResult? _parseResult;
     private MemoryCardSave? _selectedSave;
+
+    // Save counter (tab 2)
+    private MemoryCardSaveCounter? _counter;
+    private int  _newCounter;
+    private bool _isSavingCounter;
 
     // Fusion calc
     private bool _isCalculating;
@@ -377,6 +460,7 @@
             // fall back to the first save in the card.
             _selectedSave = _parseResult.Saves.FirstOrDefault(s => s.Cards.Count > 0)
                             ?? _parseResult.Saves.FirstOrDefault();
+            RefreshCounter();
         }
         catch (Exception ex)
         {
@@ -393,6 +477,48 @@
     {
         _selectedSave = save;
         _allSequences = null;
+        RefreshCounter();
+    }
+
+    private void RefreshCounter()
+    {
+        _counter = null;
+        if (_selectedSave is null || _mcrBytes is null) return;
+        try
+        {
+            _counter = MemoryCardParser.ReadSaveCounter(_mcrBytes, _selectedSave);
+            if (_counter is not null) _newCounter = _counter.Counter;
+        }
+        catch { _counter = null; }
+    }
+
+    private async Task SaveCounter()
+    {
+        if (_selectedSave is null || _mcrFilePath is null || _counter is null) return;
+        if (_newCounter < 0 || _newCounter > 255)
+        {
+            Snackbar.Add("Valor deve estar entre 0 e 255.", Severity.Warning);
+            return;
+        }
+
+        _isSavingCounter = true;
+        try
+        {
+            await MemoryCardParser.WriteSaveCounterAsync(_mcrFilePath, _selectedSave, _newCounter);
+            // Recarrega bytes do disco pra refletir o novo estado.
+            _mcrBytes = await File.ReadAllBytesAsync(_mcrFilePath);
+            RefreshCounter();
+            Snackbar.Add($"Contador atualizado para {_newCounter}. Backup criado automaticamente.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falha ao gravar contador: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isSavingCounter = false;
+        }
     }
 
     private string SaveCardStyle(MemoryCardSave save, bool selected)

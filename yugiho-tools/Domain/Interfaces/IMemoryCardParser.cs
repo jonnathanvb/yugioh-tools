@@ -21,4 +21,14 @@ public interface IMemoryCardParser
         string filePath,
         MemoryCardTrunk trunk,
         IReadOnlyDictionary<int, int> counts);
+
+    /// <summary>Lê o contador de saves (games-played) do FM save.</summary>
+    MemoryCardSaveCounter? ReadSaveCounter(byte[] memoryCardBytes, MemoryCardSave save);
+
+    /// <summary>Reescreve o contador no arquivo, atualizando as 2 posições
+    /// (main + backup) e recalculando os CRCs.</summary>
+    Task WriteSaveCounterAsync(
+        string filePath,
+        MemoryCardSave save,
+        int newCounter);
 }

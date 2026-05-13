@@ -15,6 +15,10 @@ public interface IModRepository
         string sourceMrgPath,
         string imageUrlTemplate);
 
+    /// <summary>Atualiza um MOD existente (matched por <c>Slug</c>).
+    /// Reescreve o index inteiro com a nova entrada.</summary>
+    Task UpdateAsync(Mod mod);
+
     Task DeleteAsync(string slug);
 
     string GetGameFilePath(Mod mod);

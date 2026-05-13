@@ -124,6 +124,15 @@ public class LoadedRomCache
             _data       = fromJson;
             _loadedFor  = mod;
             _loadedSlug = mod.Slug;
+
+            // Aplica preferências per-MOD: fonte de imagem (TEA vs MOD) +
+            // overrides de posição do frame. O ExtractedDataLoader já
+            // populou CardFrameRegistry com as posições extraídas; o
+            // override (se existir) sobrescreve por cima.
+            Helpers.CardImage.UseModImages = mod.ImageSource == Domain.Entities.ImageSource.Mod;
+            if (mod.FrameOverrides is not null)
+                Helpers.CardFrameRegistry.LoadPositions(mod.FrameOverrides);
+            Helpers.CardFrameRegistry.ShowAtkDefLabels = mod.ShowAtkDefLabels;
         }
         catch (OperationCanceledException) { /* trocou de MOD; ignora */ }
         catch (Exception ex)

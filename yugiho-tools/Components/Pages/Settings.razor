@@ -73,61 +73,7 @@
             </MudPaper>
         </MudItem>
 
-        <!-- ─── Linha 2: Imagens das cartas (largura cheia) ──────── -->
-        <MudItem xs="12">
-            <MudPaper Class="pa-4" Elevation="3"
-                      Style="background:#141428; border:1px solid #2a2a6e;">
-                <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;"
-                         Class="mb-2">
-                    <MudIcon Icon="@Icons.Material.Filled.Image"
-                             Class="mr-1" Size="Size.Small" />
-                    @L.T("settings.imageSourceTitle")
-                </MudText>
-                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
-
-                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2 d-block">
-                    @L.T("settings.imageSourceFullDesc")
-                </MudText>
-
-                <MudToggleGroup T="ImageSource"
-                                SelectionMode="SelectionMode.SingleSelection"
-                                Value="_imageSource"
-                                ValueChanged="OnImageSourceChanged"
-                                Color="Color.Secondary"
-                                CheckMark="false">
-                    <MudToggleItem Value="ImageSource.Tea">
-                        <div class="d-flex align-center gap-2">
-                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" />
-                            <div>
-                                <div style="font-weight:600;">@L.T("settings.imageSourceTea")</div>
-                                <MudText Typo="Typo.caption" Style="color:#888;">
-                                    @L.T("settings.imageSourceTeaDesc")
-                                </MudText>
-                            </div>
-                        </div>
-                    </MudToggleItem>
-                    <MudToggleItem Value="ImageSource.Mod">
-                        <div class="d-flex align-center gap-2">
-                            <MudIcon Icon="@Icons.Material.Filled.Save" Size="Size.Small" />
-                            <div>
-                                <div style="font-weight:600;">@L.T("settings.imageSourceMod")</div>
-                                <MudText Typo="Typo.caption" Style="color:#888;">
-                                    @L.T("settings.imageSourceModDesc")
-                                </MudText>
-                            </div>
-                        </div>
-                    </MudToggleItem>
-                </MudToggleGroup>
-
-                @if (_imageSource == ImageSource.Mod)
-                {
-                    <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3"
-                              Style="background:#1a2a3a; border:1px solid #2a4a6e;">
-                        @L.T("settings.modeMod.alert")
-                    </MudAlert>
-                }
-            </MudPaper>
-        </MudItem>
+        <!-- Linha 2 (fonte de imagens) foi movida pra config per-MOD em /mods. -->
 
         <!-- ─── Linha 3: Atalho | Cores das cartas ───────────────── -->
         <MudItem xs="12" md="6">
@@ -271,7 +217,6 @@
     private bool        _shortcutScanEmulator;
     private bool        _shortcutCalculateFusions;
     private bool        _recording;
-    private ImageSource _imageSource;
     private string      _language = "pt";
     private string[]    _descriptionColors = AppSettings.DefaultDescriptionColors;
 
@@ -284,7 +229,6 @@
         _shortcutClearDeck        = Cfg.ShortcutClearDeck;
         _shortcutScanEmulator     = Cfg.ShortcutScanEmulator;
         _shortcutCalculateFusions = Cfg.ShortcutCalculateFusions;
-        _imageSource              = Cfg.ImageSource;
         _language                 = L.Language;
         _descriptionColors        = Cfg.DescriptionColors;
         L.Changed += OnLocaleChanged;
@@ -321,15 +265,6 @@
     {
         _language  = lang;
         L.Language = lang;
-    }
-
-    private void OnImageSourceChanged(ImageSource v)
-    {
-        _imageSource    = v;
-        Cfg.ImageSource = v;
-        Snackbar.Add(
-            L.T(v == ImageSource.Mod ? "imageSource.changedToMod" : "imageSource.changedToTea"),
-            Severity.Success);
     }
 
     private void OnMaxGridCardsChanged(int v)

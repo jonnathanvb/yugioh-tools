@@ -137,60 +137,92 @@
                     </MudPaper>
                 </div>
 
-                @* Fonte da Description: ROM (binário) ou JSON do lab.
-                   Cada mod fica diferente — alguns o JSON tem texto rico
-                   com marcadores, outros tem placeholders crus que nosso
-                   decoder não interpreta. Usuário escolhe na hora do
-                   cadastro qual fonte é melhor pro mod dele. *@
-                <div class="mt-3" style="padding:8px 10px; background:#15152e; border-radius:6px;
+                @* Fonte por campo: cada linha tem 2 checkboxes (ROM/JSON)
+                   com escolha única. Default = todos JSON; usuário troca
+                   pra ROM o que achar necessário. Campos exclusivos do
+                   JSON (Limited/Password/CostStars): marcar ROM = "não
+                   importa, deixa vazio". *@
+                <div class="mt-3" style="padding:10px 12px; background:#15152e; border-radius:6px;
                                          border:1px solid #2a2a6e;">
-                    <MudText Typo="Typo.caption" Style="color:#888; letter-spacing:1px;" Class="mb-1">
-                        @L.T("mods.descSource")
+                    <MudText Typo="Typo.caption" Style="color:#888; letter-spacing:1px;" Class="mb-2">
+                        @L.T("mods.fieldSource.title")
                     </MudText>
-                    <MudToggleGroup T="ModExtractor.DescriptionSource"
-                                    SelectionMode="SelectionMode.SingleSelection"
-                                    Value="@_descriptionSource"
-                                    ValueChanged="@(v => _descriptionSource = v)"
-                                    Color="Color.Secondary"
-                                    Dense="true"
-                                    CheckMark="false">
-                        <MudToggleItem Value="ModExtractor.DescriptionSource.Rom">
-                            <div class="d-flex align-center gap-1">
-                                <MudIcon Icon="@Icons.Material.Filled.Memory" Size="Size.Small" />
-                                @L.T("mods.descSource.rom")
-                            </div>
-                        </MudToggleItem>
-                        <MudToggleItem Value="ModExtractor.DescriptionSource.Json">
-                            <div class="d-flex align-center gap-1">
-                                <MudIcon Icon="@Icons.Material.Filled.DataObject" Size="Size.Small" />
-                                @L.T("mods.descSource.json")
-                            </div>
-                        </MudToggleItem>
-                    </MudToggleGroup>
-                    <MudText Typo="Typo.caption" Style="color:#888; display:block;" Class="mt-1">
-                        @L.T("mods.descSourceHelp")
+
+                    <table class="field-source-table" style="width:100%; border-collapse:collapse;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; color:#888; font-weight:600; font-size:11px;
+                                           padding:4px 8px;">Campo</th>
+                                <th style="text-align:center; color:#888; font-weight:600; font-size:11px;
+                                           padding:4px 8px; width:60px;">
+                                    <MudIcon Icon="@Icons.Material.Filled.Memory" Size="Size.Small"
+                                             Style="vertical-align:middle;" /> ROM
+                                </th>
+                                <th style="text-align:center; color:#888; font-weight:600; font-size:11px;
+                                           padding:4px 8px; width:60px;">
+                                    <MudIcon Icon="@Icons.Material.Filled.DataObject" Size="Size.Small"
+                                             Style="vertical-align:middle;" /> JSON
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @RenderSourceRow("Name",         _sourceMatrix.Name,
+                                             v => _sourceMatrix = _sourceMatrix with { Name = v })
+                            @RenderSourceRow("Description",  _sourceMatrix.Description,
+                                             v => _sourceMatrix = _sourceMatrix with { Description = v })
+                            @RenderSourceRow("Guardian Stars", _sourceMatrix.Guardians,
+                                             v => _sourceMatrix = _sourceMatrix with { Guardians = v })
+                            @RenderSourceRow("Equips",       _sourceMatrix.Equips,
+                                             v => _sourceMatrix = _sourceMatrix with { Equips = v })
+                            @RenderSourceRow("Fusions",      _sourceMatrix.Fusions,
+                                             v => _sourceMatrix = _sourceMatrix with { Fusions = v })
+                            @RenderSourceRow("Rituals",      _sourceMatrix.Rituals,
+                                             v => _sourceMatrix = _sourceMatrix with { Rituals = v })
+                            @RenderSourceRow("Limited (TCG ban)", _sourceMatrix.Limited,
+                                             v => _sourceMatrix = _sourceMatrix with { Limited = v },
+                                             romDisabledHint: "ROM não tem este campo")
+                            @RenderSourceRow("Password (TCG code)", _sourceMatrix.Password,
+                                             v => _sourceMatrix = _sourceMatrix with { Password = v },
+                                             romDisabledHint: "ROM não tem este campo")
+                            @RenderSourceRow("Star Chip cost", _sourceMatrix.CostStars,
+                                             v => _sourceMatrix = _sourceMatrix with { CostStars = v },
+                                             romDisabledHint: "ROM não tem este campo")
+                            @RenderSourceRow("Duelists",     _sourceMatrix.Duelists,
+                                             v => _sourceMatrix = _sourceMatrix with { Duelists = v })
+                        </tbody>
+                    </table>
+
+                    <MudText Typo="Typo.caption" Style="color:#888; display:block;" Class="mt-2">
+                        @L.T("mods.fieldSource.help")
                     </MudText>
                 </div>
 
                 @* Flag pra mods com duelista extra (ex.: Rakuza no TLM).
                    Quando marcada, o extrator usa offset deslocado e lê 40
                    portraits — Rakuza vira o índice 0 e os demais empurram
-                   pra +1, batendo com o comportamento *@
-                <div class="mt-3" style="padding:8px 10px; background:#15152e; border-radius:6px;
-                                         border:1px solid #2a2a6e;">
-                    <MudCheckBox T="bool"
-                                 Value="_hasExtraDuelist"
-                                 ValueChanged="@(v => _hasExtraDuelist = v)"
-                                 Color="Color.Primary"
-                                 Dense="true">
-                        <MudText Typo="Typo.body2" Style="color:#cfcfe0;">
-                            @L.T("mods.extraDuelist")
+                   pra +1.
+
+                   Só faz sentido quando duelistas vêm do ROM: se a fonte
+                   é JSON, o offset shift do binário é irrelevante (o JSON
+                   já traz os duelistas decifrados pelo lab). *@
+                @if (_sourceMatrix.Duelists == FieldSource.Rom)
+                {
+                    <div class="mt-3" style="padding:8px 10px; background:#15152e; border-radius:6px;
+                                             border:1px solid #2a2a6e;">
+                        <MudCheckBox T="bool"
+                                     Value="_hasExtraDuelist"
+                                     ValueChanged="@(v => _hasExtraDuelist = v)"
+                                     Color="Color.Primary"
+                                     Dense="true">
+                            <MudText Typo="Typo.body2" Style="color:#cfcfe0;">
+                                @L.T("mods.extraDuelist")
+                            </MudText>
+                        </MudCheckBox>
+                        <MudText Typo="Typo.caption" Style="color:#888; padding-left:32px; display:block;">
+                            @L.T("mods.extraDuelistHelp")
                         </MudText>
-                    </MudCheckBox>
-                    <MudText Typo="Typo.caption" Style="color:#888; padding-left:32px; display:block;">
-                        @L.T("mods.extraDuelistHelp")
-                    </MudText>
-                </div>
+                    </div>
+                }
 
                 <div class="d-flex align-center mt-1" style="padding-left:4px;">
                     <MudIcon Icon="@Icons.Material.Filled.Download"
@@ -482,6 +514,10 @@
                                                 @L.T("mods.setActive")
                                             </MudButton>
                                         }
+                                        <MudIconButton Icon="@Icons.Material.Filled.Image"
+                                                       Color="Color.Info" Size="Size.Small"
+                                                       OnClick="@(() => OpenImageConfig(modRef))"
+                                                       title="Configurar imagem e layout do frame" />
                                         <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                        Color="Color.Error" Size="Size.Small"
                                                        OnClick="@(() => DeleteMod(modRef))"
@@ -513,7 +549,35 @@
     private string? _newMrgPath;
     private string? _newJsonPath;
     private bool    _hasExtraDuelist;
-    private ModExtractor.DescriptionSource _descriptionSource = ModExtractor.DescriptionSource.Rom;
+    private FieldSourceMatrix _sourceMatrix = FieldSourceMatrix.DefaultAllJson;
+
+    /// <summary>Linha da matriz de fonte: rótulo + 2 checkboxes mutuamente
+    /// exclusivos. Marcar uma desmarca a outra. <paramref name="romDisabledHint"/>
+    /// preenche um title="..." quando ROM não faz sentido (campo só-JSON);
+    /// a checkbox ainda é clicável (significa "deixar vazio").</summary>
+    private RenderFragment RenderSourceRow(
+        string label, FieldSource current, Action<FieldSource> set,
+        string? romDisabledHint = null) => __builder =>
+    {
+        <tr style="border-top:1px solid #1e1e4a;">
+            <td style="padding:4px 8px; color:#cfcfe0; font-size:13px;">@label</td>
+            <td style="padding:4px 8px; text-align:center;"
+                title="@romDisabledHint">
+                <MudCheckBox T="bool"
+                             Value="@(current == FieldSource.Rom)"
+                             ValueChanged="@((bool v) => { if (v) set(FieldSource.Rom); })"
+                             Color="Color.Secondary"
+                             Dense="true" />
+            </td>
+            <td style="padding:4px 8px; text-align:center;">
+                <MudCheckBox T="bool"
+                             Value="@(current == FieldSource.Json)"
+                             ValueChanged="@((bool v) => { if (v) set(FieldSource.Json); })"
+                             Color="Color.Primary"
+                             Dense="true" />
+            </td>
+        </tr>
+    };
     private ModCatalogEntry? _selectedCatalog;
     private bool    _isSaving;
     private List<Mod> _mods = [];
@@ -678,14 +742,14 @@
     /// </summary>
     private async Task OpenExtractionDialog(Mod mod, string? jsonPath = null,
                                             bool hasExtraDuelist = false,
-                                            ModExtractor.DescriptionSource descSource = ModExtractor.DescriptionSource.Rom)
+                                            FieldSourceMatrix? sourceMatrix = null)
     {
         var parameters = new DialogParameters
         {
             ["Mod"] = mod,
             ["JsonPath"] = jsonPath,
             ["HasExtraDuelist"] = hasExtraDuelist,
-            ["DescriptionSource"] = descSource,
+            ["SourceMatrix"] = sourceMatrix ?? FieldSourceMatrix.DefaultAllJson,
         };
         var options = new DialogOptions
         {
@@ -776,6 +840,26 @@
         if (r != null) _newJsonPath = r.FullPath;
     }
 
+    private async Task OpenImageConfig(Mod mod)
+    {
+        var parameters = new DialogParameters { { "Mod", mod } };
+        var options    = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true,
+            CloseButton = true,
+            BackdropClick = false
+        };
+        var dlg = await DialogService.ShowAsync<ModImageConfigDialog>("", parameters, options);
+        var result = await dlg.Result;
+        if (result is not null && !result.Canceled)
+        {
+            // Mudanças foram salvas; recarrega lista pra refletir defaults
+            // novos (alguma label/aviso depende do ImageSource per-mod).
+            await Reload();
+        }
+    }
+
     private async Task SaveMod()
     {
         if (!CanSave) return;
@@ -789,18 +873,18 @@
 
             var jsonPath = _newJsonPath;
             var hasExtra = _hasExtraDuelist;
-            var descSource = _descriptionSource;
+            var matrix   = _sourceMatrix;
             _newGamePath = null;
             _newMrgPath = null;
             _newJsonPath = null;
             _hasExtraDuelist = false;
-            _descriptionSource = ModExtractor.DescriptionSource.Rom;
+            _sourceMatrix = FieldSourceMatrix.DefaultAllJson;
             _selectedCatalog = null;
             await Reload();
 
             // Dispara extração automática logo após o cadastro — usuário
             // espera UMA vez e depois leituras são instantâneas via JSON.
-            await OpenExtractionDialog(mod, jsonPath, hasExtra, descSource);
+            await OpenExtractionDialog(mod, jsonPath, hasExtra, matrix);
 
             // Se é o primeiro MOD, ativa automaticamente — usuário não
             // precisa clicar em "Definir como ativo" pra começar a usar.

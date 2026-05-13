@@ -519,15 +519,15 @@ public class RomParser : IRomParser
                     artBgr[o + 1] = g;
                     artBgr[o + 2] = r;
                 }
-                cards[i].ModImageDataUrl = yugiho_tools.Application.Helpers.BmpEncoder
-                    .ToDataUrl(artBgr, p.CardArtWidth, p.CardArtHeight);
+                cards[i].ModImageDataUrl = yugiho_tools.Application.Helpers.PngEncoder
+                    .ToDataUrl24(artBgr, p.CardArtWidth, p.CardArtHeight);
             }
             else
             {
                 // Fallback: se o offset HD estourar (ROM pequeno/exótico),
                 // usa o thumbnail mesmo — melhor algo do que nada.
-                cards[i].ModImageDataUrl = yugiho_tools.Application.Helpers.BmpEncoder
-                    .ToDataUrl(bgr, ThumbWidth, ThumbHeight);
+                cards[i].ModImageDataUrl = yugiho_tools.Application.Helpers.PngEncoder
+                    .ToDataUrl24(bgr, ThumbWidth, ThumbHeight);
             }
         }
     }

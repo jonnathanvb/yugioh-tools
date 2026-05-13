@@ -84,8 +84,8 @@
     [Parameter, EditorRequired] public Mod Mod { get; set; } = default!;
     [Parameter] public string? JsonPath { get; set; }
     [Parameter] public bool HasExtraDuelist { get; set; }
-    [Parameter] public ModExtractor.DescriptionSource DescriptionSource { get; set; }
-        = ModExtractor.DescriptionSource.Rom;
+    [Parameter] public FieldSourceMatrix SourceMatrix { get; set; }
+        = FieldSourceMatrix.DefaultAllJson;
 
     private int     _progress;
     private string  _message = "Iniciando…";
@@ -110,7 +110,7 @@
             await Extractor.ExtractAsync(Mod, progress, _cts.Token,
                 externalJsonPath: JsonPath,
                 hasExtraDuelist: HasExtraDuelist,
-                descriptionSource: DescriptionSource);
+                sourceMatrix: SourceMatrix);
             _done = true;
         }
         catch (OperationCanceledException)

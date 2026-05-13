@@ -3,12 +3,11 @@
 @using yugiho_tools.Application.Services
 @using yugiho_tools.Domain.Entities
 @inject CurrentModContext ModContext
-@inject AppSettings Cfg
 
 @if (_layout != null)
 {
-    <div style="width:100%; max-height:75vh; overflow:auto;
-                background:#0a0a18; border-radius:6px; padding:8px;">
+    <div style="position:relative; width:100%; max-height:75vh; overflow:auto;
+                background:#0a0a18; border-radius:6px; padding:8px 8px 120px 8px;">
         <svg xmlns="http://www.w3.org/2000/svg"
              width="@F(_layout.Width * Zoom)"
              height="@F(_layout.Height * Zoom)"
@@ -62,13 +61,14 @@
                    @onclick="@(() => OnCardClickedInternal(card))"
                    @onmousedown="@(() => StartCardLongPress(card))"
                    @onmouseup="CancelCardLongPress"
-                   @onmouseleave="CancelCardLongPress"
+                   @onmouseenter="@(() => OnCardHoverEnter(card, node))"
+                   @onmouseleave="OnCardHoverLeave"
                    @ontouchstart="@(() => StartCardLongPress(card))"
                    @ontouchend="CancelCardLongPress"
                    @ontouchcancel="CancelCardLongPress">
                     @if (card != null)
                     {
-                        @if (Cfg.ImageSource == ImageSource.Mod && CardFrameRegistry.HasFrames)
+                        @if (CardImage.UseModImages && CardFrameRegistry.HasFrames)
                         {
                             @* Em modo MOD a "capa" é composição de frame +
                                arte + textos (HTML/CSS). SVG <image> não dá
@@ -99,8 +99,7 @@
                           width="@F(GraphLayout.NodeW)" height="@F(GraphLayout.NodeH)"
                           rx="6" ry="6"
                           fill="none" stroke="@stroke" stroke-width="@strokeW" />
-
-                    <title>@($"{node.Name}{(card != null ? $" — ATK {card.Attack} / DEF {card.Defense}" : "")}")</title>
+                    
                 </g>
             }
 
@@ -129,6 +128,14 @@
                 </g>
             }
         </svg>
+
+        @if (_hoveredCard != null)
+        {
+            <CardHoverPreview Card="@_hoveredCard"
+                              Left="@_previewLeft"
+                              Top="@_previewTop"
+                              Anchor="@_previewAnchor" />
+        }
     </div>
 }
 
@@ -156,6 +163,14 @@
     private int? _hoveredJunctionIndex;
     private HashSet<int> _highlightedJunctions = [];
     private HashSet<string> _highlightedNodes = [];
+
+    // ── Preview no hover ────────────────────────────────────────
+    private Card?  _hoveredCard;
+    private double _previewLeft;
+    private double _previewTop;
+    private string _previewAnchor = "right";
+    private const double PreviewGap = 12;          // px de respiro entre carta e tooltip
+    private const double PreviewEstimatedWidth = 100;  // bate com .card-hover-preview (320 + padding)
 
     private const double FadedOpacity = 0.15;
 
@@ -198,6 +213,45 @@
         _cardPressCts?.Cancel();
         _cardPressCts?.Dispose();
         _cardPressCts = null;
+    }
+
+    // ── Preview hover ───────────────────────────────────────────
+    private void OnCardHoverEnter(Card? card, GraphNode node)
+    {
+        if (card is null || _layout is null) return;
+
+        // Coordenadas em pixel relativas ao SVG (que respeita Zoom).
+        // O wrapper já está scrollável — usamos espaço lógico do SVG
+        // multiplicado por Zoom + 8px de padding do wrapper.
+        const double wrapperPad = 8;
+        double cardRightPx  = wrapperPad + (node.X + GraphLayout.NodeW) * Zoom;
+        double cardLeftPx   = wrapperPad + node.X * Zoom;
+        double cardTopPx    = wrapperPad + node.Y * Zoom;
+
+        // Se a carta está próxima da borda direita lógica do grafo,
+        // ancora à esquerda pra não cortar.
+        double graphRightLogical = _layout.Width;
+        bool nearRightEdge = (node.X + GraphLayout.NodeW + PreviewEstimatedWidth / Zoom)
+                              > graphRightLogical;
+
+        if (nearRightEdge)
+        {
+            _previewAnchor = "left";
+            _previewLeft   = cardLeftPx - PreviewGap;
+        }
+        else
+        {
+            _previewAnchor = "right";
+            _previewLeft   = cardRightPx + PreviewGap;
+        }
+        _previewTop  = cardTopPx;
+        _hoveredCard = card;
+    }
+
+    private void OnCardHoverLeave()
+    {
+        _hoveredCard = null;
+        CancelCardLongPress();
     }
 
     private async Task OnCardClickedInternal(Card? card)

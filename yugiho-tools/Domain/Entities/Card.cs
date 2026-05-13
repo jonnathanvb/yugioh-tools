@@ -72,8 +72,22 @@ public class Card()
     private static string GuardianStarName(int index) =>
         index < GuardianStarNames.Length ? GuardianStarNames[index] : "?";
 
+    /// <summary>
+    /// Nomes dos guardian stars indexados por ID (0..13). Índices 0..10 são
+    /// os originais do FM; 11..13 são extensões usadas por MODs:
+    ///   • Fortuna (11): vence os 10 originais, perde pra Ceres, neutro com
+    ///     Transpluto e contra outra Fortuna.
+    ///   • Transpluto (12): neutro contra tudo.
+    ///   • Ceres (13): perde para os 10 originais, vence Fortuna, neutro com
+    ///     Transpluto.
+    /// </summary>
     public static readonly string[] GuardianStarNames =
-        ["None", "Mars", "Jupiter", "Saturn", "Uranus", "Pluto", "Neptune", "Mercury", "Sun", "Moon", "Venus"];
+    [
+        "None",
+        "Mars", "Jupiter", "Saturn", "Uranus", "Pluto", "Neptune",
+        "Mercury", "Sun", "Moon", "Venus",
+        "Fortuna", "Transpluto", "Ceres",
+    ];
 
 }
 

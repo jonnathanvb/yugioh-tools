@@ -5,9 +5,9 @@ namespace yugiho_tools.Application.Helpers;
 /// enriquecem a moldura do modo MOD. Populado pelo
 /// <c>ExtractedDataLoader</c> ao carregar o MOD do disco.
 ///
-/// Como o nosso encoder BMP é 24bpp sem alpha, o fundo preto fica
-/// visível. A UI compõe usando <c>mix-blend-mode: lighten</c> sobre o
-/// frame dourado — pixels pretos somem, nome dourado fica visível.
+/// Imagens são PNG com canal alpha (índice 0 da CLUT vira pixel
+/// transparente), então a UI não precisa de truques de blend-mode —
+/// basta posicionar a img sobre o frame.
 /// </summary>
 public static class ExtractedAssets
 {
@@ -21,12 +21,16 @@ public static class ExtractedAssets
     /// Usado tanto na tabela de tipos quanto inline na descrição via
     /// marcador <c>&lt;_N_&gt;</c>.</summary>
     private static readonly Dictionary<int, string> Types = new(24);
+    /// <summary>guardianId (1..13) → data URL do ícone 16×16. Índice
+    /// alinhado com Card.GuardianStarNames (0 = None, sem ícone).</summary>
+    private static readonly Dictionary<int, string> Guardians = new(13);
     private static string? StarUrl;
 
     public static bool HasNames      => Names.Count > 0;
     public static bool HasAttributes => Attributes.Count > 0;
     public static bool HasDuelists   => Duelists.Count > 0;
     public static bool HasTypes      => Types.Count > 0;
+    public static bool HasGuardians  => Guardians.Count > 0;
     public static bool HasStar       => !string.IsNullOrEmpty(StarUrl);
 
     public static string? GetName(int cardId)
@@ -41,6 +45,9 @@ public static class ExtractedAssets
     public static string? GetType(int typeId)
         => Types.TryGetValue(typeId, out var url) ? url : null;
 
+    public static string? GetGuardian(int guardianId)
+        => Guardians.TryGetValue(guardianId, out var url) ? url : null;
+
     public static string? GetStar() => StarUrl;
 
     public static void Reset()
@@ -49,12 +56,14 @@ public static class ExtractedAssets
         Attributes.Clear();
         Duelists.Clear();
         Types.Clear();
+        Guardians.Clear();
         StarUrl = null;
     }
 
-    public static void SetName(int cardId, string url)      => Names[cardId] = url;
-    public static void SetAttribute(int attrId, string url) => Attributes[attrId] = url;
-    public static void SetDuelist(int duelistId, string url) => Duelists[duelistId] = url;
-    public static void SetType(int typeId, string url)       => Types[typeId] = url;
-    public static void SetStar(string url)                  => StarUrl = url;
+    public static void SetName(int cardId, string url)        => Names[cardId] = url;
+    public static void SetAttribute(int attrId, string url)   => Attributes[attrId] = url;
+    public static void SetDuelist(int duelistId, string url)  => Duelists[duelistId] = url;
+    public static void SetType(int typeId, string url)        => Types[typeId] = url;
+    public static void SetGuardian(int guardianId, string url) => Guardians[guardianId] = url;
+    public static void SetStar(string url)                    => StarUrl = url;
 }

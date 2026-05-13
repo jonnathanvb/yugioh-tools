@@ -63,7 +63,7 @@ public class ExtractedDataLoader
         CardFrameRegistry.LoadPositions(data.Positions);
         CardFrameRegistry.LoadFusionResults(cards);
 
-        return new LoadedRomData(cards, duelists);
+        return new LoadedRomData(cards, duelists, data.Positions);
     }
 
     /// <summary>
@@ -78,13 +78,13 @@ public class ExtractedDataLoader
         if (!Directory.Exists(dir)) return;
         foreach (var c in cards)
         {
-            var path = Path.Combine(dir, $"{c.CardId}.bmp");
+            var path = Path.Combine(dir, $"{c.CardId}.png");
             if (!File.Exists(path)) continue;
             try
             {
                 var bytes = File.ReadAllBytes(path);
                 c.ModImageDataUrl =
-                    $"data:image/bmp;base64,{Convert.ToBase64String(bytes)}";
+                    $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
             }
             catch { /* ignora — carta cai pra TEA */ }
         }
@@ -126,14 +126,14 @@ public class ExtractedDataLoader
 
     /// <summary>
     /// Lê os 70 BMPs de moldura em <c>extracted/frames/</c> e popula o
-    /// <see cref="CardFrameRegistry"/>. Filename: <c>{cycle}_{color}.bmp</c>.
+    /// <see cref="CardFrameRegistry"/>. Filename: <c>{cycle}_{color}.png</c>.
     /// </summary>
     private static void LoadFramesFromDisk(string modFolder)
     {
         var dir = Path.Combine(modFolder, ModExtractor.FramesDir);
         if (!Directory.Exists(dir)) return;
         var dict = new Dictionary<(int, int), string>();
-        foreach (var path in Directory.EnumerateFiles(dir, "*.bmp"))
+        foreach (var path in Directory.EnumerateFiles(dir, "*.png"))
         {
             var name = Path.GetFileNameWithoutExtension(path);
             var parts = name.Split('_');
@@ -144,7 +144,7 @@ public class ExtractedDataLoader
             {
                 var bytes = File.ReadAllBytes(path);
                 dict[(cy, co)] =
-                    $"data:image/bmp;base64,{Convert.ToBase64String(bytes)}";
+                    $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
             }
             catch { /* skip */ }
         }
@@ -152,20 +152,20 @@ public class ExtractedDataLoader
     }
 
     /// <summary>
-    /// Lê <c>extracted/names/{cardId-1}.bmp</c>, <c>extracted/attributes/{attrId}.bmp</c>
-    /// e <c>extracted/star/0.bmp</c>, popula o <see cref="ExtractedAssets"/>.
+    /// Lê <c>extracted/names/{cardId-1}.png</c>, <c>extracted/attributes/{attrId}.png</c>
+    /// e <c>extracted/star/0.png</c>, popula o <see cref="ExtractedAssets"/>.
     /// Imagens viram data URLs base64 — UI usa direto em &lt;img src&gt;.
     /// </summary>
     private static void LoadExtractedAssetsFromDisk(string modFolder)
     {
         ExtractedAssets.Reset();
 
-        // Nomes: arquivo o.bmp corresponde a card index o (0-based);
+        // Nomes: arquivo o.png corresponde a card index o (0-based);
         // CardId é 1-based, então armazenamos com cardId = o + 1.
         var namesDir = Path.Combine(modFolder, "extracted/names");
         if (Directory.Exists(namesDir))
         {
-            foreach (var path in Directory.EnumerateFiles(namesDir, "*.bmp"))
+            foreach (var path in Directory.EnumerateFiles(namesDir, "*.png"))
             {
                 var name = Path.GetFileNameWithoutExtension(path);
                 if (!int.TryParse(name, out var idx)) continue;
@@ -178,7 +178,7 @@ public class ExtractedDataLoader
         var attrDir = Path.Combine(modFolder, "extracted/attributes");
         if (Directory.Exists(attrDir))
         {
-            foreach (var path in Directory.EnumerateFiles(attrDir, "*.bmp"))
+            foreach (var path in Directory.EnumerateFiles(attrDir, "*.png"))
             {
                 var name = Path.GetFileNameWithoutExtension(path);
                 if (!int.TryParse(name, out var idx)) continue;
@@ -188,7 +188,7 @@ public class ExtractedDataLoader
         }
 
         // Star (único arquivo)
-        var starPath = Path.Combine(modFolder, "extracted/star/0.bmp");
+        var starPath = Path.Combine(modFolder, "extracted/star/0.png");
         if (File.Exists(starPath))
         {
             var url = ReadAsDataUrl(starPath);
@@ -199,7 +199,7 @@ public class ExtractedDataLoader
         var duelistDir = Path.Combine(modFolder, "extracted/duelists");
         if (Directory.Exists(duelistDir))
         {
-            foreach (var path in Directory.EnumerateFiles(duelistDir, "*.bmp"))
+            foreach (var path in Directory.EnumerateFiles(duelistDir, "*.png"))
             {
                 var name = Path.GetFileNameWithoutExtension(path);
                 if (!int.TryParse(name, out var idx)) continue;
@@ -213,12 +213,26 @@ public class ExtractedDataLoader
         var typesDir = Path.Combine(modFolder, "extracted/types");
         if (Directory.Exists(typesDir))
         {
-            foreach (var path in Directory.EnumerateFiles(typesDir, "*.bmp"))
+            foreach (var path in Directory.EnumerateFiles(typesDir, "*.png"))
             {
                 var name = Path.GetFileNameWithoutExtension(path);
                 if (!int.TryParse(name, out var idx)) continue;
                 var url = ReadAsDataUrl(path);
                 if (url is not null) ExtractedAssets.SetType(idx, url);
+            }
+        }
+
+        // Guardians (sprites 16×16). Os arquivos são nomeados 1..N para
+        // alinhar com o ID do guardian star (0 = None, sem ícone).
+        var guardiansDir = Path.Combine(modFolder, "extracted/guardians");
+        if (Directory.Exists(guardiansDir))
+        {
+            foreach (var path in Directory.EnumerateFiles(guardiansDir, "*.png"))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                if (!int.TryParse(name, out var idx)) continue;
+                var url = ReadAsDataUrl(path);
+                if (url is not null) ExtractedAssets.SetGuardian(idx, url);
             }
         }
     }
@@ -228,7 +242,7 @@ public class ExtractedDataLoader
         try
         {
             var bytes = File.ReadAllBytes(path);
-            return $"data:image/bmp;base64,{Convert.ToBase64String(bytes)}";
+            return $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
         }
         catch { return null; }
     }

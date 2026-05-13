@@ -1,0 +1,361 @@
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+@using yugiho_tools.Domain.Interfaces
+@inject IModRepository ModRepo
+@inject LoadedRomCache RomCache
+@inject CurrentModContext ModContext
+@inject ExtractedDataLoader ExtractedLoader
+@inject ISnackbar Snackbar
+@implements IAsyncDisposable
+
+@*
+    Dialog per-MOD pra configurar:
+      • Fonte de imagem (TEA online vs MOD extraído)
+      • Quando MOD: posições dos slots da moldura (nome, ATK, DEF, estrelas,
+        atributo, art) + checkbox pra renderizar rótulos "ATK"/"DEF" como
+        texto separado (alguns MODs precisam disso na arte).
+      • Preview ao vivo da primeira carta.
+
+    O MOD não precisa estar ativo: o dialog carrega data.json do MOD-alvo,
+    aplica seus assets nos registries estáticos pra renderizar o preview,
+    e restaura o estado do MOD originalmente ativo no Dispose/Cancel/Save.
+*@
+
+<MudDialog>
+    <TitleContent>
+        <MudIcon Icon="@Icons.Material.Filled.Image" Class="mr-1" />
+        Configurar imagem — @Mod.Name
+    </TitleContent>
+    <DialogContent>
+        @if (_loadFailed)
+        {
+            <MudAlert Severity="Severity.Warning"
+                      Style="background:#2a1a00; border:1px solid #c8a415; color:#c8a415;">
+                <strong>MOD não foi extraído ainda.</strong>
+                Pra configurar posições do frame, primeiro execute a extração
+                — abra <code>data.json</code> via "Extrair".
+            </MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+
+                <!-- Toggle fonte de imagem -->
+                <MudPaper Class="pa-3" Elevation="0"
+                          Style="background:#0a0a18; border:1px solid #1e1e4a;">
+                    <MudText Typo="Typo.subtitle2" Style="color:#c8a415;" Class="mb-2">
+                        Fonte da imagem
+                    </MudText>
+                    <MudToggleGroup T="ImageSource"
+                                    SelectionMode="SelectionMode.SingleSelection"
+                                    Value="_imageSource"
+                                    ValueChanged="OnSourceChanged"
+                                    Color="Color.Secondary"
+                                    CheckMark="false">
+                        <MudToggleItem Value="ImageSource.Mod">
+                            <div class="d-flex align-center gap-1">
+                                <MudIcon Icon="@Icons.Material.Filled.Save" Size="Size.Small" />
+                                <span style="font-weight:600;">Arte do MOD</span>
+                            </div>
+                        </MudToggleItem>
+                        <MudToggleItem Value="ImageSource.Tea">
+                            <div class="d-flex align-center gap-1">
+                                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" />
+                                <span style="font-weight:600;">TEAONLINE (HD)</span>
+                            </div>
+                        </MudToggleItem>
+                    </MudToggleGroup>
+                </MudPaper>
+
+                <div class="d-flex gap-3 flex-wrap" style="align-items:flex-start;">
+
+                    <!-- Preview -->
+                    <MudPaper Class="pa-3" Elevation="0"
+                              Style="background:#0a0a18; border:1px solid #1e1e4a; width:240px; flex:0 0 auto;">
+                        <MudText Typo="Typo.subtitle2" Style="color:#c8a415;" Class="mb-2">
+                            Preview (carta #@(_previewCard?.CardId ?? 0))
+                        </MudText>
+                        @if (_previewCard is not null)
+                        {
+                            <div @key="@_renderKey">
+                                <CardCover Card="@_previewCard" WidthPx="200" />
+                            </div>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Style="color:#888;">
+                                Carta não disponível.
+                            </MudText>
+                        }
+                    </MudPaper>
+
+                    <!-- Editor de posições — visível só pra MOD -->
+                    @if (_imageSource == ImageSource.Mod)
+                    {
+                        <MudPaper Class="pa-3" Elevation="0"
+                                  Style="background:#0a0a18; border:1px solid #1e1e4a; flex:1; min-width:280px;">
+                            <div class="d-flex align-center justify-space-between mb-2">
+                                <MudText Typo="Typo.subtitle2" Style="color:#c8a415;">
+                                    Posição dos elementos
+                                </MudText>
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           StartIcon="@Icons.Material.Filled.Refresh"
+                                           OnClick="ResetToExtractedDefaults">
+                                    Resetar
+                                </MudButton>
+                            </div>
+                            <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-2 d-block">
+                                Coordenadas em pixels do canvas 144×200.
+                                Mudanças refletem no preview ao lado.
+                            </MudText>
+
+                            <MudGrid Spacing="2">
+                                @RenderPair("Art",       () => _pos.ArtX,  v => _pos.ArtX  = v,
+                                                         () => _pos.ArtY,  v => _pos.ArtY  = v)
+                                @RenderPair("Nome",      () => _pos.NameX, v => _pos.NameX = v,
+                                                         () => _pos.NameY, v => _pos.NameY = v)
+                                @RenderPair("ATK",       () => _pos.AtkX,  v => _pos.AtkX  = v,
+                                                         () => _pos.AtkY,  v => _pos.AtkY  = v)
+                                @RenderPair("DEF",       () => _pos.DefX,  v => _pos.DefX  = v,
+                                                         () => _pos.DefY,  v => _pos.DefY  = v)
+                                @RenderPair("Estrelas",  () => _pos.StX,   v => _pos.StX   = v,
+                                                         () => _pos.StY,   v => _pos.StY   = v)
+                                @RenderPair("Atributo",  () => _pos.AttrX, v => _pos.AttrX = v,
+                                                         () => _pos.AttrY, v => _pos.AttrY = v)
+
+                                <MudItem xs="12">
+                                    <MudDivider Class="my-1" Style="border-color:#1e1e4a;" />
+                                    <MudCheckBox T="bool"
+                                                 Value="@_showAtkDefLabels"
+                                                 ValueChanged="@OnShowLabelsChanged"
+                                                 Color="Color.Primary"
+                                                 Label="Renderizar rótulos &quot;ATK&quot; e &quot;DEF&quot; (alguns MODs não trazem no frame)" />
+                                </MudItem>
+                                @if (_showAtkDefLabels)
+                                {
+                                    @RenderPair("ATK (texto)", () => _pos.AtkLabelX, v => _pos.AtkLabelX = v,
+                                                               () => _pos.AtkLabelY, v => _pos.AtkLabelY = v)
+                                    @RenderPair("DEF (texto)", () => _pos.DefLabelX, v => _pos.DefLabelX = v,
+                                                               () => _pos.DefLabelY, v => _pos.DefLabelY = v)
+                                }
+
+                                <MudItem xs="12">
+                                    <MudDivider Class="my-1" Style="border-color:#1e1e4a;" />
+                                    <MudText Typo="Typo.body2" Style="color:#cfcfd6;" Class="mb-1">
+                                        Tamanho de fonte (cqw = % da largura)
+                                    </MudText>
+                                </MudItem>
+                                @RenderFontSize("Nome",
+                                    () => _pos.NameFontSize,
+                                    v  => _pos.NameFontSize = v)
+                                @RenderFontSize("ATK/DEF valor",
+                                    () => _pos.AtkDefValueFontSize,
+                                    v  => _pos.AtkDefValueFontSize = v)
+                                @if (_showAtkDefLabels)
+                                {
+                                    @RenderFontSize("ATK/DEF rótulo",
+                                        () => _pos.AtkDefLabelFontSize,
+                                        v  => _pos.AtkDefLabelFontSize = v)
+                                }
+                            </MudGrid>
+                        </MudPaper>
+                    }
+                </div>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   OnClick="Save" Disabled="@(_loadFailed || _saving)">
+            @(_saving ? "Salvando..." : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public Mod Mod { get; set; } = default!;
+
+    private bool _loadFailed;
+    private bool _saving;
+    private bool _disposed;
+    private bool _showAtkDefLabels;
+    private ImageSource _imageSource;
+    private FramePositions _pos = new();
+    private FramePositions? _extractedDefaults;
+    private Card? _previewCard;
+    private int _renderKey;
+
+    // Slug do MOD originalmente ativo — restaurado no Dispose se trocamos
+    // os registries pra mostrar o preview desse dialog.
+    private string? _previousActiveSlug;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _imageSource     = Mod.ImageSource;
+        _showAtkDefLabels = Mod.ShowAtkDefLabels;
+        _previousActiveSlug = ModContext.CurrentSlug;
+
+        // Carrega data.json deste MOD (não muda o ModContext — só popula
+        // os registries estáticos que CardCover consulta).
+        var data = await ExtractedLoader.TryLoadAsync(Mod);
+        if (data is null)
+        {
+            _loadFailed = true;
+            return;
+        }
+
+        _extractedDefaults = data.Positions ?? new FramePositions();
+        _pos = Mod.FrameOverrides is not null
+            ? CloneOf(Mod.FrameOverrides)
+            : CloneOf(_extractedDefaults);
+        _previewCard = data.Cards.FirstOrDefault();
+
+        // Aplica overrides + flag de fonte pra preview refletir o estado
+        // que o usuário tem salvo no MOD.
+        CardImage.UseModImages       = _imageSource == ImageSource.Mod;
+        CardFrameRegistry.LoadPositions(_pos);
+        CardFrameRegistry.ShowAtkDefLabels = _showAtkDefLabels;
+    }
+
+    private static FramePositions CloneOf(FramePositions src) => new()
+    {
+        ArtX  = src.ArtX,  ArtY  = src.ArtY,
+        NameX = src.NameX, NameY = src.NameY,
+        AtkX  = src.AtkX,  AtkY  = src.AtkY,
+        DefX  = src.DefX,  DefY  = src.DefY,
+        StX   = src.StX,   StY   = src.StY,
+        AttrX = src.AttrX, AttrY = src.AttrY,
+        AtkLabelX = src.AtkLabelX, AtkLabelY = src.AtkLabelY,
+        DefLabelX = src.DefLabelX, DefLabelY = src.DefLabelY,
+    };
+
+    private void OnSourceChanged(ImageSource v)
+    {
+        _imageSource = v;
+        CardImage.UseModImages = v == ImageSource.Mod;
+        _renderKey++;
+    }
+
+    private void OnShowLabelsChanged(bool v)
+    {
+        _showAtkDefLabels = v;
+        CardFrameRegistry.ShowAtkDefLabels = v;
+        _renderKey++;
+    }
+
+    private void ResetToExtractedDefaults()
+    {
+        if (_extractedDefaults is null) return;
+        _pos = CloneOf(_extractedDefaults);
+        ApplyLiveToRegistry();
+    }
+
+    /// <summary>Renderiza um par de NumericFields (X, Y) compartilhando
+    /// um rótulo. Cada mudança aplica imediatamente no registry pra
+    /// refletir no preview ao vivo.</summary>
+    private RenderFragment RenderPair(
+        string label,
+        Func<int> getX, Action<int> setX,
+        Func<int> getY, Action<int> setY) => __builder =>
+    {
+        <MudItem xs="12">
+            <div class="d-flex align-center gap-2">
+                <MudText Typo="Typo.body2" Style="color:#cfcfd6; width:80px;">@label</MudText>
+                <MudNumericField T="int" Value="@getX()" ValueChanged="@((int v) => { setX(v); ApplyLiveToRegistry(); })"
+                                 Label="X" Min="0" Max="500"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Style="width:80px;" />
+                <MudNumericField T="int" Value="@getY()" ValueChanged="@((int v) => { setY(v); ApplyLiveToRegistry(); })"
+                                 Label="Y" Min="0" Max="500"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Style="width:80px;" />
+            </div>
+        </MudItem>
+    };
+
+    private void ApplyLiveToRegistry()
+    {
+        CardFrameRegistry.LoadPositions(_pos);
+        _renderKey++;
+    }
+
+    /// <summary>Slider numérico pra tamanho de fonte em cqw. Step 0.25
+    /// dá ajuste fino sem virar zoom mosca-volante.</summary>
+    private RenderFragment RenderFontSize(string label, Func<double> get, Action<double> set) => __builder =>
+    {
+        <MudItem xs="12">
+            <div class="d-flex align-center gap-2">
+                <MudText Typo="Typo.body2" Style="color:#cfcfd6; width:140px;">@label</MudText>
+                <MudNumericField T="double"
+                                 Value="@get()"
+                                 ValueChanged="@((double v) => { set(v); ApplyLiveToRegistry(); })"
+                                 Min="1.0" Max="20.0" Step="0.25"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Style="width:120px;" />
+                <MudText Typo="Typo.caption" Style="color:#888;">cqw</MudText>
+            </div>
+        </MudItem>
+    };
+
+    private async Task Save()
+    {
+        _saving = true;
+        try
+        {
+            Mod.ImageSource      = _imageSource;
+            Mod.ShowAtkDefLabels = _showAtkDefLabels;
+            Mod.FrameOverrides   = (_imageSource == ImageSource.Mod)
+                ? CloneOf(_pos)
+                : null;
+
+            await ModRepo.UpdateAsync(Mod);
+            Snackbar.Add("Configuração salva.", Severity.Success);
+
+            // Se o MOD editado é o ativo, mantém o estado novo aplicado.
+            // Caso contrário, restaura o MOD originalmente ativo.
+            await RestoreActiveModIfNeeded();
+            _disposed = true;     // evita restore duplicado no Dispose
+
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falha ao salvar: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task Cancel()
+    {
+        await RestoreActiveModIfNeeded();
+        _disposed = true;
+        MudDialog.Cancel();
+    }
+
+    /// <summary>Se o MOD editado NÃO é o ativo, força reload do MOD ativo
+    /// pra que os registries estáticos voltem ao estado correto.</summary>
+    private async Task RestoreActiveModIfNeeded()
+    {
+        if (_previousActiveSlug is not null && _previousActiveSlug != Mod.Slug)
+        {
+            // Reload completo do MOD ativo — re-aplica frames, posições,
+            // assets, ImageSource. Custo: leitura do data.json (rápido).
+            await RomCache.ReloadAsync();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        // Fallback caso usuário feche pelo "X" ou clique fora — garante
+        // que o estado dos registries não fica contaminado.
+        await RestoreActiveModIfNeeded();
+    }
+}

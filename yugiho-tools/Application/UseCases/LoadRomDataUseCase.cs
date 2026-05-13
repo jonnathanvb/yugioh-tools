@@ -32,7 +32,8 @@ public class LoadRomDataUseCase(IRomParser parser)
 
 public sealed record LoadedRomData(
     IReadOnlyList<Card> Cards,
-    IReadOnlyList<Duelist> Duelists)
+    IReadOnlyList<Duelist> Duelists,
+    FramePositions? Positions = null)
 {
     /// <summary>
     /// Returns every duelist that drops <paramref name="cardIndex"/> across the

@@ -62,13 +62,11 @@
                             <td>
                                 <CategoryIconLabel Kind="CategoryIconLabel.CategoryKind.Type"
                                                    Id="@Card.CardType" />
-                                <span style="color:#888;"> (@Card.CardType)</span>
                             </td></tr>
                         <tr><td style="@LabelStyle">Attribute</td>
                             <td>
                                 <CategoryIconLabel Kind="CategoryIconLabel.CategoryKind.Attribute"
                                                    Id="@Card.Attribute" />
-                                <span style="color:#888;"> (@Card.Attribute)</span>
                             </td></tr>
                         <tr><td style="@LabelStyle">Guardian Stars</td>
                             <td>@Card.GuardianStarNames[Math.Clamp(Card.GuardianStar1, 0, Card.GuardianStarNames.Length - 1)] /

@@ -3,7 +3,6 @@
 @using yugiho_tools.Domain.Entities
 @using System.Globalization
 @inject CurrentModContext ModContext
-@inject AppSettings Cfg
 
 @*
    Render uniforme da capa da carta. Em modo MOD compõe três camadas:
@@ -17,7 +16,7 @@
    Em modo TEA, fica como antes: <img> simples, frame já vem embutido.
 *@
 
-@if (Cfg.ImageSource == ImageSource.Mod && CardFrameRegistry.HasFrames)
+@if (CardImage.UseModImages && CardFrameRegistry.HasFrames)
 {
     var frameUrl = CardFrameRegistry.GetFrameForCard(Card);
     var artUrl   = CardImage.Url(ModContext.ImageUrlTemplate, Card.CardId);
@@ -46,28 +45,19 @@
                                    CardFrameRegistry.ArtW, CardFrameRegistry.ArtH)"
              loading="lazy" />
 
-        @* ── Nome (imagem extraída do ROM, fallback texto) ───────── *@
-        @{
-            var nameImg = ExtractedAssets.GetName(Card.CardId);
-        }
-        @if (nameImg is not null)
-        {
-            @* mix-blend-mode:lighten descarta o fundo preto do BMP
-               (sem alpha channel) sobre o frame dourado — só o texto
-               em amarelo claro fica visível. *@
-            <img src="@nameImg" alt="@Card.Name"
-                 class="fm-frame-name-img"
-                 style="@PositionStyle(CardFrameRegistry.NameX, CardFrameRegistry.NameY,
-                                       CardFrameRegistry.NameW, CardFrameRegistry.NameH)" />
-        }
-        else
-        {
-            <div class="fm-frame-text fm-frame-name"
-                 style="@PositionStyle(CardFrameRegistry.NameX, CardFrameRegistry.NameY,
-                                       CardFrameRegistry.NameW, CardFrameRegistry.NameH)">
-                @Card.Name
-            </div>
-        }
+        @* ── Nome (label HTML) ───────────────────────────────────
+           A imagem extraída do ROM (96×14 BMP indexado) escala mal
+           em qualquer tamanho acima do nativo: bordas serrilhadas e
+           ilegibilidade. Voltamos pra label HTML, que aproveita a
+           fonte vetorial do browser e fica nítida em qualquer escala.
+           Se quiser reativar a imagem do ROM no futuro, basta trocar
+           pelo <img class="fm-frame-name-img" src="@ExtractedAssets.GetName(Card.CardId)" />. *@
+        <div class="fm-frame-text fm-frame-name"
+             style="@PositionStyle(CardFrameRegistry.NameX, CardFrameRegistry.NameY,
+                                   CardFrameRegistry.NameW, CardFrameRegistry.NameH);
+                    @FontSizeStyle(CardFrameRegistry.NameFontSize)">
+            @Card.Name
+        </div>
 
         @* ── Atributo (ícone extraído) ─────────────────────────── *@
         @{
@@ -108,14 +98,34 @@
         @* ── ATK / DEF como texto (não temos fonte do ROM) ───── *@
         @if (isMonster)
         {
+            @if (CardFrameRegistry.ShowAtkDefLabels)
+            {
+                @* Rótulos "ATK"/"DEF" — só pra MODs onde o frame não traz
+                   essas palavras impressas. Posições configuradas pelo
+                   usuário no dialog de configuração do MOD. *@
+                <div class="fm-frame-text fm-frame-atk-label"
+                     style="@PositionStyle(CardFrameRegistry.AtkLabelX, CardFrameRegistry.AtkLabelY,
+                                           CardFrameRegistry.AtkLabelW, CardFrameRegistry.AtkLabelH);
+                            @FontSizeStyle(CardFrameRegistry.AtkDefLabelFontSize)">
+                    ATK
+                </div>
+                <div class="fm-frame-text fm-frame-def-label"
+                     style="@PositionStyle(CardFrameRegistry.DefLabelX, CardFrameRegistry.DefLabelY,
+                                           CardFrameRegistry.DefLabelW, CardFrameRegistry.DefLabelH);
+                            @FontSizeStyle(CardFrameRegistry.AtkDefLabelFontSize)">
+                    DEF
+                </div>
+            }
             <div class="fm-frame-text fm-frame-atk"
                  style="@PositionStyle(CardFrameRegistry.AtkX, CardFrameRegistry.AtkY,
-                                       CardFrameRegistry.AtkW, CardFrameRegistry.AtkH)">
+                                       CardFrameRegistry.AtkW, CardFrameRegistry.AtkH);
+                        @FontSizeStyle(CardFrameRegistry.AtkDefValueFontSize)">
                 @Card.Attack
             </div>
             <div class="fm-frame-text fm-frame-def"
                  style="@PositionStyle(CardFrameRegistry.DefX, CardFrameRegistry.DefY,
-                                       CardFrameRegistry.DefW, CardFrameRegistry.DefH)">
+                                       CardFrameRegistry.DefW, CardFrameRegistry.DefH);
+                        @FontSizeStyle(CardFrameRegistry.AtkDefValueFontSize)">
                 @Card.Defense
             </div>
         }
@@ -185,6 +195,11 @@ else
             "position:absolute; left:{0:F2}%; top:{1:F2}%; width:{2:F2}%; height:{3:F2}%; display:flex; gap:0;",
             leftPct, topPct, widthPct, hPct);
     }
+
+    /// <summary>Emite <c>font-size: Xcqw</c> com InvariantCulture
+    /// (sem isso, locale pt-BR gera vírgula e o CSS é descartado).</summary>
+    private static string FontSizeStyle(double cqw)
+        => string.Format(Inv, "font-size:{0:F2}cqw;", cqw);
 
     /// <summary>Converte um retângulo em coordenadas de canvas (144×200)
     /// pra style absoluto em %, escalando junto com o tamanho final.</summary>

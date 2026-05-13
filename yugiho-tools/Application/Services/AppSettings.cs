@@ -1,16 +1,8 @@
 namespace yugiho_tools.Application.Services;
 
-public enum ImageSource
-{
-    /// <summary>Imagens hospedadas no basededatostea (TEAONLINE) — atalho:
-    /// "Tea". Cada mod aponta para uma pasta lá. É o comportamento histórico.</summary>
-    Tea = 0,
-
-    /// <summary>Arte extraída do próprio ROM (thumbnail 40×32). Independente
-    /// de internet e bate exatamente com o que o jogo mostra — porém em
-    /// resolução baixa.</summary>
-    Mod = 1,
-}
+// O enum ImageSource foi movido pra Domain.Entities (Mod o referencia).
+// Re-exportamos aqui via using alias pra não quebrar imports antigos
+// dos arquivos que ainda usam o namespace Application.Services.
 
 public class AppSettings
 {
@@ -19,7 +11,6 @@ public class AppSettings
     public const string PrefShortcutClear    = "settings.shortcut.clearDeck";
     public const string PrefShortcutScan     = "settings.shortcut.scanEmulator";
     public const string PrefShortcutCalc     = "settings.shortcut.calculateFusions";
-    public const string PrefImageSource      = "settings.imageSource";
     public const string PrefDescriptionColors = "settings.descriptionColors";
     public const string PrefClaudeApiKey     = "settings.claude.apiKey";
     public const string PrefClaudeModel      = "settings.claude.model";
@@ -36,7 +27,6 @@ public class AppSettings
 
     public const int          DefaultMaxGridCards = 50;
     public const string       DefaultShortcutKey  = "F2";
-    public const ImageSource  DefaultImageSource  = ImageSource.Tea;
     public const string       DefaultClaudeModel  = "claude-haiku-4-5-20251001";
     public const string       DefaultClaudeBaseUrl = "https://api.anthropic.com";
     public const string       DefaultOllamaBaseUrl = "http://localhost:11434";
@@ -65,13 +55,9 @@ public class AppSettings
 
     public event Action? Changed;
 
-    public AppSettings()
-    {
-        // Aplica imediatamente no helper estático — assim, ao iniciar o app,
-        // o CardImage já reflete a preferência salva sem esperar a primeira
-        // tela de Settings ser aberta.
-        Helpers.CardImage.UseModImages = ImageSource == ImageSource.Mod;
-    }
+    // ImageSource agora é per-MOD (em Domain.Entities.Mod) — não há mais
+    // preferência global de ImageSource. O LoadedRomCache aplica
+    // CardImage.UseModImages quando ativa o MOD.
 
     public int MaxGridCards
     {
@@ -101,21 +87,6 @@ public class AppSettings
     {
         get => Microsoft.Maui.Storage.Preferences.Default.Get(PrefShortcutCalc, false);
         set { Microsoft.Maui.Storage.Preferences.Default.Set(PrefShortcutCalc, value); Changed?.Invoke(); }
-    }
-
-    public ImageSource ImageSource
-    {
-        get => (ImageSource)Microsoft.Maui.Storage.Preferences.Default
-                    .Get(PrefImageSource, (int)DefaultImageSource);
-        set
-        {
-            Microsoft.Maui.Storage.Preferences.Default.Set(PrefImageSource, (int)value);
-            // Sincroniza o helper estático: todas as chamadas de
-            // CardImage.Url passam a refletir a nova preferência sem precisar
-            // restartar o app.
-            Helpers.CardImage.UseModImages = value == ImageSource.Mod;
-            Changed?.Invoke();
-        }
     }
 
     /// <summary>

@@ -52,17 +52,15 @@ public class ModExtractor
     /// rodar de novo simplesmente sobrescreve o JSON.
     /// </summary>
     /// <summary>Fonte de onde a Description de cada carta sai. Definido
-    /// pelo usuário no cadastro do MOD — algumas vezes a binária é
-    /// mais legível, outras a do JSON do lab é mais rica.</summary>
-    public enum DescriptionSource { Rom, Json }
-
+    /// pelo usuário no cadastro do MOD — agora via <see cref="FieldSourceMatrix"/>
+    /// que permite escolha ROM/JSON por campo individual.</summary>
     public async Task<ExtractedRomData> ExtractAsync(
         Mod mod,
         IProgress<ExtractionStep>? progress = null,
         CancellationToken token = default,
         string? externalJsonPath = null,
         bool hasExtraDuelist = false,
-        DescriptionSource descriptionSource = DescriptionSource.Rom)
+        FieldSourceMatrix? sourceMatrix = null)
     {
         Report(0,  "Lendo arquivos do ROM…");
         var binProgress = new Progress<int>(p =>
@@ -121,8 +119,13 @@ public class ModExtractor
             try
             {
                 var imported = await _labImporter.ImportAsync(externalJsonPath);
-                MergeImportedMetadata(data, imported, descriptionSource);
-                data.Duelists = imported.Duelists;
+                var matrix = sourceMatrix ?? FieldSourceMatrix.DefaultAllJson;
+                MergeImportedMetadata(data, imported, matrix);
+
+                // Duelistas: vêm do JSON só se o usuário escolheu essa
+                // fonte. Caso contrário, mantém os parseados do binário.
+                if (matrix.Duelists == FieldSource.Json)
+                    data.Duelists = imported.Duelists;
             }
             catch (Exception ex)
             {
@@ -269,46 +272,84 @@ public class ModExtractor
     }
 
     /// <summary>
-    /// Aplica metadados do JSON do lab por cima dos dados binários,
-    /// SEM tocar em fusions/equips/equipTargets/rituals — esses sempre
-    /// vêm do parser (fonte canônica, cobre todos os mods conhecidos).
-    /// Match por <c>Id</c> (1-based); cartas que existem só no JSON
-    /// (raro) são ignoradas.
+    /// Aplica metadados do JSON do lab por cima dos dados binários, com
+    /// granularidade per-campo via <see cref="FieldSourceMatrix"/>.
     ///
-    /// Description: o usuário escolhe a fonte no cadastro via
-    /// <paramref name="descriptionSource"/>:
-    ///   • <see cref="DescriptionSource.Rom"/> (default): texto
-    ///     binário — texto plano sem marcadores, mas mais legível.
-    ///   • <see cref="DescriptionSource.Json"/>: texto do lab tal
-    ///     qual — pode conter marcadores ricos (<c>&lt;_N_&gt;</c>,
-    ///     <c>|N…|</c>) ou placeholders crus dependendo do mod.
+    /// Para cada campo configurado como <see cref="FieldSource.Json"/>,
+    /// o valor é copiado do JSON. Para <see cref="FieldSource.Rom"/>, o
+    /// valor binário (já presente em <paramref name="binary"/>) é mantido.
+    /// Campos que só existem no JSON (Limited/Password/CostStars) ficam
+    /// vazios/zero quando o usuário escolhe Rom.
     /// </summary>
     private static void MergeImportedMetadata(
         ExtractedRomData binary,
         ExtractedRomData imported,
-        DescriptionSource descriptionSource)
+        FieldSourceMatrix m)
     {
         var byId = imported.Cards.ToDictionary(c => c.Id);
         foreach (var card in binary.Cards)
         {
             if (!byId.TryGetValue(card.Id, out var src)) continue;
 
-            // IsRitual já vem do parser binário (= cards[i].Rituals.Count > 0);
-            // só sobrescreve se o lab marcou explicitamente.
-            if (src.IsRitual)  card.IsRitual  = true;
-            card.IsFusion  = src.IsFusion || card.Fusions.Any(f => f.Result == card.Id - 1);
-            card.Limited   = src.Limited;
-            card.Password  = src.Password;
-            card.CostStars = src.CostStars;
+            // Name: ROM (binary) é default histórico. Lab pode trazer prefixo
+            // de cor "|N…" — útil só se o usuário quer renderização do lab.
+            if (m.Name == FieldSource.Json && !string.IsNullOrWhiteSpace(src.Name))
+                card.Name = src.Name;
 
-            if (descriptionSource == DescriptionSource.Json
-                && !string.IsNullOrWhiteSpace(src.Description))
+            // Description: ROM = texto binário plano; JSON = pode trazer
+            // marcadores ricos (<_N_>, |N…|).
+            if (m.Description == FieldSource.Json && !string.IsNullOrWhiteSpace(src.Description))
             {
                 card.Description = src.Description;
-                // Sincroniza o slot "en" do mapa de tradução pra que
-                // o lookup em CardDescriptionText ache a versão certa.
+                // Sincroniza o slot "en" do map de traduções.
                 card.DescriptionsByLanguage["en"] = src.Description;
             }
+
+            // Guardian Stars: ROM tem só os originais (1..10); JSON pode
+            // trazer Fortuna/Transpluto/Ceres (11..13) em MODs estendidos.
+            if (m.Guardians == FieldSource.Json)
+            {
+                card.Guardian1 = src.Guardian1;
+                card.Guardian2 = src.Guardian2;
+            }
+
+            // Equips: cada slot é um cardId 1-based no lab; o parser binário
+            // já normaliza pra 0-based. JSON pode ter listas mais limpas
+            // em MODs com várias edições.
+            if (m.Equips == FieldSource.Json)
+                card.Equips = src.Equips;
+
+            // Fusions: idem.
+            if (m.Fusions == FieldSource.Json)
+                card.Fusions = src.Fusions;
+
+            // Rituals: ROM ParseRituals lê 0xB97400 do MRG; JSON tem as
+            // receitas decifradas pelo lab. Em MODs com bug de empacotamento
+            // o JSON costuma ser mais confiável.
+            if (m.Rituals == FieldSource.Json)
+                card.Rituals = src.Rituals;
+        
+            
+            
+                // IsRitual/IsFusion: SEMPRE derivados pós-merge a partir das
+                // listas finais. Antes, mantínhamos "src.IsRitual" como
+                // override, mas isso causava bug: quando ROM gerava
+                // Rituals=true (carta tinha receita) e JSON dizia
+                // IsRitual=false (sem receita), o flag ficava true por
+                // herança. Derivar do tamanho da lista pós-merge mantém
+                // consistência com a fonte escolhida pelo usuário.
+                card.IsRitual = card.Rituals.Any(f => f.Result == card.Id - 1);
+                card.IsFusion = card.Fusions.Any(f => f.Result == card.Id - 1);
+          
+
+          
+
+            // Campos exclusivos do JSON (não existem no ROM): se o usuário
+            // escolheu Rom, esses ficam com o default vazio/zero do
+            // BuildDto (card já veio assim).
+            if (m.Limited   == FieldSource.Json) card.Limited   = src.Limited;
+            if (m.Password  == FieldSource.Json) card.Password  = src.Password;
+            if (m.CostStars == FieldSource.Json) card.CostStars = src.CostStars;
         }
     }
 
@@ -454,8 +495,8 @@ public class ModExtractor
     private const int AttributesCount       = 9;
 
     /// <summary>
-    /// Grava a arte 102×96 de cada carta como BMP em
-    /// <c>extracted/cards/{cardId}.bmp</c>. Os bytes são extraídos do
+    /// Grava a arte 102×96 de cada carta como PNG em
+    /// <c>extracted/cards/{cardId}.png</c>. Os bytes são extraídos do
     /// data URL gerado pelo parser — só decodifica o base64 e escreve.
     /// </summary>
     private static void WriteCardImages(string modFolder, IReadOnlyList<Card> cards)
@@ -463,14 +504,14 @@ public class ModExtractor
         var dir = Path.Combine(modFolder, CardsDir);
         Directory.CreateDirectory(dir);
         // Apaga BMPs antigos pra evitar lixo se o número de cartas mudou.
-        foreach (var f in Directory.EnumerateFiles(dir, "*.bmp")) File.Delete(f);
+        foreach (var f in Directory.EnumerateFiles(dir, "*.png")) File.Delete(f);
 
         foreach (var card in cards)
         {
             if (string.IsNullOrEmpty(card.ModImageDataUrl)) continue;
             var bytes = DataUrlToBytes(card.ModImageDataUrl);
             if (bytes is null) continue;
-            File.WriteAllBytes(Path.Combine(dir, $"{card.CardId}.bmp"), bytes);
+            File.WriteAllBytes(Path.Combine(dir, $"{card.CardId}.png"), bytes);
         }
     }
 
@@ -512,14 +553,14 @@ public class ModExtractor
 
     /// <summary>
     /// Grava todas as variantes de frame (10 cycles × 7 colors = 70 BMPs)
-    /// em <c>extracted/frames/{cycle}_{color}.bmp</c>. Reusa o registry
+    /// em <c>extracted/frames/{cycle}_{color}.png</c>. Reusa o registry
     /// já populado pelo parser (em memória).
     /// </summary>
     private static void WriteFrameImages(string modFolder)
     {
         var dir = Path.Combine(modFolder, FramesDir);
         Directory.CreateDirectory(dir);
-        foreach (var f in Directory.EnumerateFiles(dir, "*.bmp")) File.Delete(f);
+        foreach (var f in Directory.EnumerateFiles(dir, "*.png")) File.Delete(f);
 
         for (int cy = 0; cy < CardFrameDecoder.Cycles.Length; cy++)
         for (int co = 0; co < 7; co++)
@@ -529,13 +570,13 @@ public class ModExtractor
             var bytes = DataUrlToBytes(url);
             if (bytes is null) continue;
             File.WriteAllBytes(
-                Path.Combine(dir, $"{cy}_{co}.bmp"), bytes);
+                Path.Combine(dir, $"{cy}_{co}.png"), bytes);
         }
     }
 
     /// <summary>
     /// Extrai os bytes binários de uma data URL no formato
-    /// <c>data:image/bmp;base64,XXXX</c>. Retorna null se não for esse formato.
+    /// <c>data:image/png;base64,XXXX</c>. Retorna null se não for esse formato.
     /// </summary>
     private static byte[]? DataUrlToBytes(string dataUrl)
     {
@@ -593,14 +634,14 @@ public class ModExtractor
     {
         var dir = Path.Combine(modFolder, StarDir);
         Directory.CreateDirectory(dir);
-        foreach (var f in Directory.EnumerateFiles(dir, "*.bmp")) File.Delete(f);
+        foreach (var f in Directory.EnumerateFiles(dir, "*.png")) File.Delete(f);
 
         var bytes = SpriteDecoder.ExtractRect4bpp(
             mrg, StarBody, SpriteSheetWidth,
             StarX, StarY, StarSize, StarSize,
             StarClut, clutColors: 16);
         if (bytes is not null)
-            File.WriteAllBytes(Path.Combine(dir, "0.bmp"), bytes);
+            File.WriteAllBytes(Path.Combine(dir, "0.png"), bytes);
     }
 
     // ── Duelists (39 ou 40 portraits 48×48 8bpp) ───────────────────────
@@ -625,7 +666,7 @@ public class ModExtractor
     {
         var dir = Path.Combine(modFolder, DuelistsDir);
         Directory.CreateDirectory(dir);
-        foreach (var f in Directory.EnumerateFiles(dir, "*.bmp")) File.Delete(f);
+        foreach (var f in Directory.EnumerateFiles(dir, "*.png")) File.Delete(f);
 
         int baseOff = hasExtraDuelist ? DuelistsBase - DuelistSlot : DuelistsBase;
         int count   = hasExtraDuelist ? 40 : 39;
@@ -640,7 +681,7 @@ public class ModExtractor
                 mrg, bodyOff, DuelistImgSize, DuelistImgSize,
                 clutOff, DuelistColors);
             if (bytes is null) continue;
-            File.WriteAllBytes(Path.Combine(dir, $"{i}.bmp"), bytes);
+            File.WriteAllBytes(Path.Combine(dir, $"{i}.png"), bytes);
         }
     }
 
@@ -668,7 +709,7 @@ public class ModExtractor
     {
         var dir = Path.Combine(modFolder, NamesDir);
         Directory.CreateDirectory(dir);
-        foreach (var f in Directory.EnumerateFiles(dir, "*.bmp")) File.Delete(f);
+        foreach (var f in Directory.EnumerateFiles(dir, "*.png")) File.Delete(f);
 
         for (int o = 0; o < 722; o++)
         {
@@ -682,7 +723,7 @@ public class ModExtractor
                 x: 0, y: 0, NameWidth, NameHeight,
                 NamesClut, clutColors: 8);
             if (bytes is null) continue;
-            File.WriteAllBytes(Path.Combine(dir, $"{o}.bmp"), bytes);
+            File.WriteAllBytes(Path.Combine(dir, $"{o}.png"), bytes);
         }
     }
 
@@ -695,7 +736,7 @@ public class ModExtractor
     {
         var dir = Path.Combine(modFolder, AttributesDir);
         Directory.CreateDirectory(dir);
-        foreach (var f in Directory.EnumerateFiles(dir, "*.bmp")) File.Delete(f);
+        foreach (var f in Directory.EnumerateFiles(dir, "*.png")) File.Delete(f);
 
         for (int o = 0; o < AttributesCount; o++)
         {
@@ -706,19 +747,26 @@ public class ModExtractor
                 mrg, AttributesBody, SpriteSheetWidth,
                 x, y, SpriteSize, clutOff);
             if (bytes is null) continue;
-            File.WriteAllBytes(Path.Combine(dir, $"{o}.bmp"), bytes);
+            File.WriteAllBytes(Path.Combine(dir, $"{o}.png"), bytes);
         }
     }
 
     /// <summary>Escreve N sprites consecutivos do sheet, calculando posição
-    /// (x, y) baseada no índice. Layout: 8 sprites por linha, 16×16 cada.</summary>
+    /// (x, y) baseada no índice. Layout: 8 sprites por linha, 16×16 cada.
+    ///
+    /// Para a categoria <c>guardians</c> os arquivos são nomeados a partir
+    /// de 1 (1.png, 2.png, ...) pra casar com o ID do guardian star usado
+    /// no modelo (0 = None, 1 = Mars, ...). Demais categorias mantêm
+    /// nomenclatura 0-based.</summary>
     private static void WriteSpriteCategory(
         string modFolder, string subdir, byte[] mrg, int bodyOffset,
         int count, int startSpriteIndex, Func<int, int> clutForSprite)
     {
         var dir = Path.Combine(modFolder, subdir);
         Directory.CreateDirectory(dir);
-        foreach (var f in Directory.EnumerateFiles(dir, "*.bmp")) File.Delete(f);
+        foreach (var f in Directory.EnumerateFiles(dir, "*.png")) File.Delete(f);
+
+        bool isGuardians = subdir == GuardiansDir;
 
         for (int i = 0; i < count; i++)
         {
@@ -727,14 +775,16 @@ public class ModExtractor
             int y = (absoluteIndex / 8) * SpriteSize;
             // O índice do CLUT pode usar o relativo (i) ou o absoluto —
             // depende da categoria. Passamos a função pro caller decidir.
-            int clutIdxArg = subdir == GuardiansDir ? absoluteIndex : i;
+            int clutIdxArg = isGuardians ? absoluteIndex : i;
             int clutOff = clutForSprite(clutIdxArg);
 
             var bytes = SpriteDecoder.ExtractSprite(
                 mrg, bodyOffset, SpriteSheetWidth,
                 x, y, SpriteSize, clutOff);
             if (bytes is null) continue;
-            File.WriteAllBytes(Path.Combine(dir, $"{i}.bmp"), bytes);
+
+            int fileIndex = isGuardians ? i + 1 : i;
+            File.WriteAllBytes(Path.Combine(dir, $"{fileIndex}.png"), bytes);
         }
     }
 }

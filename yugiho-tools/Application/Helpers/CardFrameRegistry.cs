@@ -34,12 +34,30 @@ public static class CardFrameRegistry
     /// adicionais crescem pra esquerda. Default vem do SLUS NTSC-U.</summary>
     public static int StX   = 119, StY   = 32;
 
+    /// <summary>Posição dos rótulos "ATK" e "DEF" (texto). Só renderizados
+    /// quando <see cref="ShowAtkDefLabels"/> = true.</summary>
+    public static int AtkLabelX = 70, AtkLabelY = 157;
+    public static int DefLabelX = 70, DefLabelY = 171;
+
+    /// <summary>Se true, CardCover renderiza "ATK"/"DEF" como overlay HTML
+    /// nas posições <see cref="AtkLabelX"/> etc. Default false: o frame do
+    /// ROM original já traz as palavras impressas.</summary>
+    public static bool ShowAtkDefLabels;
+
+    /// <summary>Tamanho de fonte em cqw (% da largura do container). Estes
+    /// defaults batem com o app.css; o MOD sobrescreve via dialog.</summary>
+    public static double NameFontSize        = 5.0;
+    public static double AtkDefValueFontSize = 6.5;
+    public static double AtkDefLabelFontSize = 6.5;
+
     public const int ArtW  = 102, ArtH  = 96;
     public const int NameW = 95,  NameH = 16;
     public const int AtkW  = 27,  AtkH  = 13;
     public const int DefW  = 27,  DefH  = 13;
     public const int AttrW = 19,  AttrH = 16;
     public const int StarW = 8,   StarH = 8;
+    public const int AtkLabelW = 24, AtkLabelH = 13;
+    public const int DefLabelW = 24, DefLabelH = 13;
 
     public const int FrameW = CardFrameDecoder.CanvasWidth;
     public const int FrameH = CardFrameDecoder.CanvasHeight;
@@ -71,6 +89,11 @@ public static class CardFrameRegistry
         DefX  = p.DefX;  DefY  = p.DefY;
         StX   = p.StX;   StY   = p.StY;
         AttrX = p.AttrX; AttrY = p.AttrY;
+        AtkLabelX = p.AtkLabelX; AtkLabelY = p.AtkLabelY;
+        DefLabelX = p.DefLabelX; DefLabelY = p.DefLabelY;
+        NameFontSize        = p.NameFontSize;
+        AtkDefValueFontSize = p.AtkDefValueFontSize;
+        AtkDefLabelFontSize = p.AtkDefLabelFontSize;
     }
 
     /// <summary>True se o registry foi populado com sucesso.</summary>
@@ -138,14 +161,15 @@ public static class CardFrameRegistry
     /// </summary>
     public static (int Cycle, int Color) MappingForCard(Domain.Entities.Card c)
     {
+        if (c.IsRitual) return (0, 3);
+        if (c.IsFusion) return (0, 4);
+        
         return c.CardType switch
         {
-            22 => (0, 3),                                       // Ritual
+  
             21 => (0, 2),                                       // Trap
             20 or 23 => (0, 1),                                 // Magic / Equip
-            _  => FusionResultCardIds.Contains(c.CardId)
-                  ? (0, 4)                                      // Fusion result
-                  : (0, 0),                                     // Monstro padrão
+            _  => (0, 0),                                     // Monstro padrão
         };
     }
 

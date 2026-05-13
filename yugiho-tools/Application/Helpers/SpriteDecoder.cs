@@ -77,7 +77,7 @@ public static class SpriteDecoder
             }
         }
 
-        return BmpEncoder.RawBytes32(bgra, spriteSize, spriteSize);
+        return PngEncoder.RawBytes32(bgra, spriteSize, spriteSize);
     }
 
     /// <summary>
@@ -135,7 +135,7 @@ public static class SpriteDecoder
             }
         }
 
-        return BmpEncoder.RawBytes32(bgra, spriteWidth, spriteHeight);
+        return PngEncoder.RawBytes32(bgra, spriteWidth, spriteHeight);
     }
 
     /// <summary>
@@ -183,6 +183,6 @@ public static class SpriteDecoder
             bgra[o + 3] = palA[idx];
         }
 
-        return BmpEncoder.RawBytes32(bgra, width, height);
+        return PngEncoder.RawBytes32(bgra, width, height);
     }
 }

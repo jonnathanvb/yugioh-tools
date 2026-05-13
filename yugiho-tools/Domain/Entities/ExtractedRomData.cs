@@ -45,6 +45,22 @@ public class FramePositions
     public int StY   { get; set; } = 32;
     public int AttrX { get; set; } = 110;
     public int AttrY { get; set; } = 13;
+
+    // Posições dos rótulos "ATK"/"DEF" como texto (opcional — só renderiza
+    // se Mod.ShowAtkDefLabels = true). Defaults colocam à esquerda dos
+    // valores numéricos no layout NTSC-U original; o usuário ajusta no
+    // dialog se o MOD usa layout diferente.
+    public int AtkLabelX { get; set; } = 70;
+    public int AtkLabelY { get; set; } = 157;
+    public int DefLabelX { get; set; } = 70;
+    public int DefLabelY { get; set; } = 171;
+
+    // Tamanho de fonte em "cqw" (percentual da largura do container do
+    // frame). Defaults batem com .fm-frame-name / .fm-frame-atk no app.css.
+    // MODs com frames de proporção diferente costumam precisar ajustar.
+    public double NameFontSize         { get; set; } = 5.0;
+    public double AtkDefValueFontSize  { get; set; } = 6.5;
+    public double AtkDefLabelFontSize  { get; set; } = 6.5;
 }
 
 public class ExtractedCard

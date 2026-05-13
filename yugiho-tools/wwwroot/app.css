@@ -278,6 +278,113 @@ html, body {
     letter-spacing: -0.5px;
 }
 
+/* ──────────────────────────────────────────────────────────────────
+   Preview flutuante de carta no hover do grafo de fusões.
+   Posicionada via inline-style absoluto dentro do wrapper do grafo.
+   ────────────────────────────────────────────────────────────────── */
+.card-hover-preview {
+    position: absolute;
+    z-index: 50;
+    pointer-events: none;        /* nunca rouba mouse — preview pura */
+    width: 320px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: #141428;
+    border: 1px solid #c8a415;
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    padding: 8px 10px;
+    color: #e8e8e8;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.card-hover-preview .chp-header {
+    font-size: 13px;
+    font-weight: 700;
+    color: #c8a415;
+    border-bottom: 1px solid #2a2a6e;
+    padding-bottom: 4px;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-hover-preview .chp-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.card-hover-preview .chp-label {
+    color: #888;
+    padding: 2px 6px 2px 0;
+    white-space: nowrap;
+    vertical-align: middle;
+    width: 1%;
+}
+
+.card-hover-preview .chp-value {
+    padding: 2px 0;
+    vertical-align: middle;
+}
+
+.card-hover-preview .chp-atk { color: #ffb74d; font-weight: 700; }
+.card-hover-preview .chp-def { color: #64b5f6; font-weight: 700; }
+.card-hover-preview .chp-stars { color: #c8a415; }
+
+.card-hover-preview .chp-icon {
+    width: 16px;
+    height: 16px;
+    vertical-align: middle;
+    margin-right: 4px;
+    image-rendering: pixelated;
+}
+
+.card-hover-preview .chp-guardian-pair {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.card-hover-preview .chp-guardian {
+    display: inline-flex;
+    align-items: center;
+}
+
+.card-hover-preview .chp-sep { color: #555; padding: 0 2px; }
+
+.card-hover-preview .chp-guardian-pair.win  { color: #66bb6a; }
+.card-hover-preview .chp-guardian-pair.lose { color: #ef5350; }
+
+.card-hover-preview .chp-arrow {
+    display: inline-block;
+    width: 16px;
+    text-align: center;
+    font-weight: 700;
+}
+.card-hover-preview .chp-arrow-up   { color: #66bb6a; }
+.card-hover-preview .chp-arrow-down { color: #ef5350; }
+
+.card-hover-preview .chp-desc-header {
+    margin-top: 8px;
+    padding: 3px 6px;
+    background: #0a0a18;
+    color: #c8a415;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-left: 2px solid #c8a415;
+}
+
+.card-hover-preview .chp-desc {
+    padding: 6px 4px 2px;
+    font-size: 15px;
+    color: #cfcfd6;
+    white-space: pre-wrap;
+}
+
 /* Modal de detalhes da carta — ocupa 80% da janela em ambas as dimensões.
    Usa !important para sobrescrever as classes de tamanho do MudBlazor
    (MaxWidth.Medium etc. aplicam max-width via classe .mud-dialog-width-md). */

@@ -369,6 +369,77 @@ public class EpsxeMemoryCardParser : IMemoryCardParser
         for (int i = halfStart + 0x800; i <= halfStart + 0x82F; i++) bytes[i] = 0;
     }
 
+    // ─── Save Counter ─────────────────────────────────────────────
+    //
+    // FM grava um "games played counter" em duas posições dentro do save
+    // block, espelhadas na backup half (+0x680):
+    //   block_start + 0x604  →  contador principal (byte)
+    //   block_start + 0x60A  →  byte de verificação (geralmente +1)
+    //
+    // Bug do load: se o jogador carrega um savestate antigo, o contador
+    // em RAM fica menor que o do memcard. O jogo então mostra "Unable to
+    // locate load data". Corrigir = gravar valor menor no memcard.
+
+    private const int CounterOffsetA  = 0x604;
+    private const int CounterOffsetB  = 0x60A;
+    private const int CounterBackupDelta = 0x680;
+
+    /// <inheritdoc/>
+    public MemoryCardSaveCounter? ReadSaveCounter(byte[] data, MemoryCardSave save)
+    {
+        int blockStart = save.StartBlock * BlockSize;
+        int absA = blockStart + CounterOffsetA;
+        int absB = blockStart + CounterOffsetB;
+        if (absB >= data.Length) return null;
+
+        return new MemoryCardSaveCounter(
+            Save:         save,
+            Counter:      data[absA],
+            CounterCheck: data[absB],
+            OffsetA:      absA,
+            OffsetB:      absB);
+    }
+
+    /// <inheritdoc/>
+    public async Task WriteSaveCounterAsync(string filePath, MemoryCardSave save, int newCounter)
+    {
+        if (newCounter < 0 || newCounter > 255)
+            throw new ArgumentOutOfRangeException(nameof(newCounter),
+                "Contador deve estar entre 0 e 255 (1 byte).");
+
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException("Memory card não encontrado.", filePath);
+
+        WriteAutoBackup(filePath);
+
+        var bytes = await File.ReadAllBytesAsync(filePath);
+        int blockStart = save.StartBlock * BlockSize;
+        if (blockStart + CounterBackupDelta + CounterOffsetB >= bytes.Length)
+            throw new InvalidDataException("Save block fora do arquivo — memory card inválido?");
+
+        byte counter      = (byte)newCounter;
+        byte counterCheck = (byte)((newCounter + 1) & 0xFF);
+
+        // Main + backup half
+        WriteCounterHalf(bytes, blockStart, counter, counterCheck);
+        WriteCounterHalf(bytes, blockStart + CounterBackupDelta, counter, counterCheck);
+
+        await File.WriteAllBytesAsync(filePath, bytes);
+    }
+
+    /// <summary>Grava counter+check numa metade (main ou backup) e recalcula
+    /// o CRC#2 (que cobre a região onde o contador vive).</summary>
+    private static void WriteCounterHalf(byte[] bytes, int halfStart, byte counter, byte counterCheck)
+    {
+        bytes[halfStart + CounterOffsetA] = counter;
+        bytes[halfStart + CounterOffsetB] = counterCheck;
+
+        // CRC#2 cobre [halfStart+0x600 .. halfStart+0x7FD]
+        ushort crc2 = Crc16Ccitt(bytes, halfStart + 0x600, 0x7FE - 0x600);
+        bytes[halfStart + 0x7FE] = (byte)((crc2 >> 8) & 0xFF);
+        bytes[halfStart + 0x7FF] = (byte)(crc2 & 0xFF);
+    }
+
     /// <summary>CRC16-CCITT, polynomial 0x1021, init 0x0000, MSB-first.</summary>
     private static ushort Crc16Ccitt(byte[] data, int offset, int length)
     {

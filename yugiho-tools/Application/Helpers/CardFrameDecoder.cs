@@ -13,13 +13,16 @@ namespace yugiho_tools.Application.Helpers;
 /// </summary>
 public static class CardFrameDecoder
 {
-    /// <summary>Dimensões do canvas: usamos 144×200 (frente sem área de
-    /// descrição) em vez de 144×264. A área de descrição (linhas 200..264)
-    /// no jogo é onde fica o texto da carta — sem texto, ela parece um
-    /// "segundo sprite colado", ruim visualmente. ATK/DEF/atributo/level
-    /// estão todos no top 200, então não perdemos nada relevante.</summary>
+    /// <summary>Dimensões do canvas: 144×264 cobre o frame INTEIRO,
+    /// incluindo a área de descrição (linhas 200..264). Pra spells
+    /// (magic, trap, ritual, equip) a área de descrição é fundamental —
+    /// é onde fica o texto do efeito; sem ela, a carta aparece como uma
+    /// caixinha estreita de ATK/DEF que faz a armadilha parecer um
+    /// monstro abortado. Pra monstros normais a área de descrição mostra
+    /// o segundo bloco do frame (com bordas em volta) — coerente com o
+    /// visual original do jogo.</summary>
     public const int CanvasWidth     = 144;
-    public const int CanvasHeight    = 200;
+    public const int CanvasHeight    = 264;
     public const int BytesWidth      = 128;
     public const int BytesHeight     = 928;
     public const int BodyBaseOffset  = 0xB63000;
@@ -39,17 +42,13 @@ public static class CardFrameDecoder
     };
 
     /// <summary>
-    /// Definição dos 6 retângulos que compõem a imagem 144×264 a partir
-    /// do body 128×928 (cardTransform1 — id "d" no módulo JS 5457).
-    /// </summary>
-    /// <summary>
-    /// Mesmos retângulos do <c>cardBg1</c> do editor cardsleeves, que cobrem
-    /// EXATAMENTE 144×200 — frente da carta sem descrição. Vem do módulo JS
-    /// 5457 (export "a"). Cortamos o chunk extra de descrição (200..264).
+    /// Retângulos do <c>cardTransform1</c> do editor cardsleeves (módulo JS
+    /// 5457, export "d") que compõem a imagem 144×264 a partir do body
+    /// 128×928 — frame INTEIRO incluindo área de descrição.
     /// </summary>
     public static readonly Chunk[] CardTransform1 =
     {
-        // Painel principal (corpo da carta, 128×192)
+        // Painel principal (corpo da carta + ATK/DEF area, 128×192)
         new(BodyX: 0,  BodyY: 0,   CanvasX: 0,   CanvasY: 0,   Width: 128, Height: 192),
         // Faixa lateral direita superior (16×128)
         new(BodyX: 0,  BodyY: 256, CanvasX: 128, CanvasY: 0,   Width: 16,  Height: 128),
@@ -59,6 +58,14 @@ public static class CardFrameDecoder
         new(BodyX: 64, BodyY: 272, CanvasX: 0,   CanvasY: 192, Width: 64,  Height: 8),
         // Borda inferior direita (64×8)
         new(BodyX: 64, BodyY: 280, CanvasX: 64,  CanvasY: 192, Width: 64,  Height: 8),
+        // Área de descrição — pra traps/magic/ritual é onde o texto do
+        // efeito vai; pra monstros é uma caixa decorativa.
+        // body(0, 192..256) → canvas(0, 200..264), 128×64.
+        new(BodyX: 0,  BodyY: 192, CanvasX: 0,   CanvasY: 200, Width: 128, Height: 64),
+        // Coluna direita da área de descrição (16×64). Sourceado do body
+        // logo após chunk 1 (que terminou em body Y=384). Continuação
+        // natural do "right column upper" no body.
+        new(BodyX: 0,  BodyY: 384, CanvasX: 128, CanvasY: 200, Width: 16,  Height: 64),
     };
 
     public readonly record struct Chunk(
@@ -143,7 +150,7 @@ public static class CardFrameDecoder
             }
         }
 
-        return BmpEncoder.ToDataUrl(bgr, CanvasWidth, CanvasHeight);
+        return PngEncoder.ToDataUrl24(bgr, CanvasWidth, CanvasHeight);
     }
 
     /// <summary>

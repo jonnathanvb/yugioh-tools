@@ -97,6 +97,16 @@ public class FileModRepository : IModRepository
         return mod;
     }
 
+    public async Task UpdateAsync(Mod mod)
+    {
+        var list = (await ListAsync()).ToList();
+        var idx  = list.FindIndex(m => m.Slug == mod.Slug);
+        if (idx < 0) throw new InvalidOperationException(
+            $"MOD '{mod.Slug}' não encontrado pra atualizar.");
+        list[idx] = mod;
+        await SaveIndexAsync(list);
+    }
+
     public async Task DeleteAsync(string slug)
     {
         var list = (await ListAsync()).ToList();

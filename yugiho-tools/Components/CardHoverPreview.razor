@@ -1,0 +1,147 @@
+@using Microsoft.AspNetCore.Components.Rendering
+@using yugiho_tools.Application.Helpers
+@using yugiho_tools.Domain.Entities
+
+@*
+    Mini-card de preview exibida no hover sobre uma carta do grafo de fusões.
+    Posicionada via inline-style absoluto pelo container pai (FusionGraphSvg).
+    Renderiza ATK/DEF/Level/Type/Attribute, três linhas de Guardian Stars
+    (atual, vence, perde para) e a descrição.
+*@
+
+@if (Card != null)
+{
+    <div class="card-hover-preview"
+         style="left:@(Left)px; top:@(Top)px; @(Anchor == "right" ? "" : "transform:translateX(-100%)" );">
+        <div class="chp-header">@Card.Name</div>
+        <table class="chp-table">
+            <tr>
+                <td class="chp-label">ATK</td>
+                <td class="chp-value chp-atk">@Card.Attack</td>
+            </tr>
+            <tr>
+                <td class="chp-label">DEF</td>
+                <td class="chp-value chp-def">@Card.Defense</td>
+            </tr>
+            <tr>
+                <td class="chp-label">Level</td>
+                <td class="chp-value">@RenderStars(Card.Level)</td>
+            </tr>
+            <tr>
+                <td class="chp-label">Type</td>
+                <td class="chp-value">
+                    @if (ExtractedAssets.GetType(Card.CardType) is { } typeUrl)
+                    {
+                        <img src="@typeUrl" class="chp-icon" alt="" />
+                    }
+                    <span>@CardMetadata.TypeName(Card.CardType) </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="chp-label">Attribute</td>
+                <td class="chp-value">
+                    @if (ExtractedAssets.GetAttribute(Card.Attribute) is { } attrUrl)
+                    {
+                        <img src="@attrUrl" class="chp-icon" alt="" />
+                    }
+                    <span>@CardMetadata.AttributeName(Card.Attribute)</span>
+                </td>
+            </tr>
+            <tr class="chp-guardian-row">
+                <td class="chp-label">Guardian Stars</td>
+                <td class="chp-value">
+                    @RenderGuardianPair(Card.GuardianStar1, Card.GuardianStar2, null)
+                </td>
+            </tr>
+            <tr class="chp-guardian-row chp-guardian-win">
+                <td class="chp-label">
+                    <span class="chp-arrow chp-arrow-up" title="Vence">▲</span>
+                </td>
+                <td class="chp-value">
+                    @RenderGuardianPair(
+                        FirstOrZero(GuardianStarRelations.Beats(Card.GuardianStar1)),
+                        FirstOrZero(GuardianStarRelations.Beats(Card.GuardianStar2)),
+                        "win")
+                </td>
+            </tr>
+            <tr class="chp-guardian-row chp-guardian-lose">
+                <td class="chp-label">
+                    <span class="chp-arrow chp-arrow-down" title="Perde para">▼</span>
+                </td>
+                <td class="chp-value">
+                    @RenderGuardianPair(
+                        FirstOrZero(GuardianStarRelations.BeatenBy(Card.GuardianStar1)),
+                        FirstOrZero(GuardianStarRelations.BeatenBy(Card.GuardianStar2)),
+                        "lose")
+                </td>
+            </tr>
+        </table>
+        @if (!string.IsNullOrWhiteSpace(Card.Description))
+        {
+            <div class="chp-desc-header">Description</div>
+            <div class="chp-desc">
+                <CardDescriptionText Card="@Card" />
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public Card? Card { get; set; }
+    [Parameter] public double Left { get; set; }
+    [Parameter] public double Top  { get; set; }
+    /// <summary>"right" (default) abre à direita da carta; "left" abre à esquerda.</summary>
+    [Parameter] public string Anchor { get; set; } = "right";
+
+    private static int FirstOrZero(IReadOnlyList<int> ids) =>
+        ids.Count > 0 ? ids[0] : 0;
+
+    private RenderFragment RenderStars(int level) => __builder =>
+    {
+        if (level <= 0) { __builder.AddContent(0, "—"); return; }
+        var stars = string.Concat(Enumerable.Repeat("★", Math.Min(level, 12)));
+        __builder.OpenElement(1, "span");
+        __builder.AddAttribute(2, "class", "chp-stars");
+        __builder.AddContent(3, stars);
+        __builder.CloseElement();
+        __builder.AddContent(4, $" ({level})");
+    };
+
+    private RenderFragment RenderGuardianPair(int id1, int id2, string? cls) => __builder =>
+    {
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", $"chp-guardian-pair {cls}");
+
+        RenderOne(__builder, id1, 2);
+        __builder.OpenElement(10, "span");
+        __builder.AddAttribute(11, "class", "chp-sep");
+        __builder.AddContent(12, " / ");
+        __builder.CloseElement();
+        RenderOne(__builder, id2, 20);
+
+        __builder.CloseElement();
+    };
+
+    private static void RenderOne(RenderTreeBuilder b, int id, int seq)
+    {
+        b.OpenElement(seq, "span");
+        b.AddAttribute(seq + 1, "class", "chp-guardian");
+
+        var url = ExtractedAssets.GetGuardian(id);
+        if (url is not null && id > 0)
+        {
+            b.OpenElement(seq + 2, "img");
+            b.AddAttribute(seq + 3, "src", url);
+            b.AddAttribute(seq + 4, "class", "chp-icon");
+            b.AddAttribute(seq + 5, "alt", "");
+            b.CloseElement();
+        }
+
+        var idx = id;
+        var name = idx >= 0 && idx < Card.GuardianStarNames.Length
+            ? Card.GuardianStarNames[idx]
+            : "?";
+        b.AddContent(seq + 6, name);
+        b.CloseElement();
+    }
+}
