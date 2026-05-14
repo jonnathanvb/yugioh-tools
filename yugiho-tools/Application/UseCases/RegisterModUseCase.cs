@@ -3,13 +3,6 @@ using yugiho_tools.Domain.Interfaces;
 
 namespace yugiho_tools.Application.UseCases;
 
-public class RegisterModUseCase(IModRepository repo)
-{
-    public Task<Mod> ExecuteAsync(
-        string name, string gamePath, string mrgPath, string imageUrlTemplate) =>
-        repo.RegisterAsync(name, gamePath, mrgPath, imageUrlTemplate);
-}
-
 public class ListModsUseCase(IModRepository repo)
 {
     public Task<IReadOnlyList<Mod>> ExecuteAsync() => repo.ListAsync();

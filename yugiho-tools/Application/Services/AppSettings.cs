@@ -56,7 +56,7 @@ public class AppSettings
     public event Action? Changed;
 
     // ImageSource agora é per-MOD (em Domain.Entities.Mod) — não há mais
-    // preferência global de ImageSource. O LoadedRomCache aplica
+    // preferência global de ImageSource. O LoadedModCache aplica
     // CardImage.UseModImages quando ativa o MOD.
 
     public int MaxGridCards

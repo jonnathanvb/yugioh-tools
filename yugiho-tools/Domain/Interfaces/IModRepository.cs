@@ -7,8 +7,16 @@ public interface IModRepository
     Task<IReadOnlyList<Mod>> ListAsync();
 
     /// <summary>
-    /// Registers a mod by copying both ROM files into MOD/&lt;slug&gt;/.
+    /// Registra um mod já extraído via importação de ZIP. A pasta
+    /// <c>MODs/{slug}/</c> com data.json + assets deve existir antes
+    /// da chamada — o repositório só atualiza o índice mods.json.
     /// </summary>
+    Task<Mod> RegisterImportedAsync(string name, string folderName);
+
+    /// <summary>[Obsoleto] Cadastro direto via SLUS/MRG saiu do app —
+    /// agora é feito no yugiho-download-json. Mantido na interface só
+    /// pra não quebrar callers durante a migração.</summary>
+    [Obsolete("Use RegisterImportedAsync; extração movida pro yugiho-download.")]
     Task<Mod> RegisterAsync(
         string name,
         string sourceGamePath,

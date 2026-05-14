@@ -6,8 +6,12 @@ namespace yugiho_tools.Infrastructure.Storage;
 
 public class FileModRepository : IModRepository
 {
+    /// <summary>
+    /// Raiz dos mods em disco. AppDataDirectory é writable em todas as
+    /// plataformas MAUI (Windows AppData, macOS ~/Library/Application Support).
+    /// </summary>
     private static readonly string ModRoot =
-        Path.Combine(AppContext.BaseDirectory, "MOD");
+        Path.Combine(FileSystem.AppDataDirectory, "MODs");
 
     private static readonly string IndexPath =
         Path.Combine(ModRoot, "mods.json");
@@ -31,70 +35,54 @@ public class FileModRepository : IModRepository
         }
     }
 
+    /// <summary>
+    /// Registra um mod já extraído (pasta com data.json + assets), sem
+    /// cópia de SLUS/MRG. Usado pelo importador de catálogo — o ZIP é
+    /// descompactado direto em <c>MODs/{slug}/</c>.
+    /// </summary>
+    public async Task<Mod> RegisterImportedAsync(string name, string folderName)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Nome do mod é obrigatório.", nameof(name));
+        if (string.IsNullOrWhiteSpace(folderName))
+            throw new ArgumentException("Pasta inválida.", nameof(folderName));
+
+        var slug = Slugify(folderName);
+        if (string.IsNullOrEmpty(slug))
+            throw new ArgumentException("Nome inválido para slug.", nameof(folderName));
+
+        var existing = (await ListAsync()).ToList();
+        // Substitui se já existir — o caller acabou de reextrair o ZIP.
+        existing.RemoveAll(m => string.Equals(m.Slug, slug, StringComparison.OrdinalIgnoreCase));
+
+        var mod = new Mod
+        {
+            Name             = name.Trim(),
+            Slug             = slug,
+            GameFileName     = "",
+            MrgFileName      = "",
+            ImageUrlTemplate = "",
+            CreatedAt        = DateTime.Now,
+            ImageSource      = Domain.Entities.ImageSource.Mod,
+        };
+
+        existing.Add(mod);
+        await SaveIndexAsync(existing);
+        return mod;
+    }
+
     public async Task<Mod> RegisterAsync(
         string name,
         string sourceGamePath,
         string sourceMrgPath,
         string imageUrlTemplate)
     {
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Nome do mod é obrigatório.", nameof(name));
-        if (!File.Exists(sourceGamePath))
-            throw new FileNotFoundException("Arquivo SLUS não encontrado.", sourceGamePath);
-        if (!File.Exists(sourceMrgPath))
-            throw new FileNotFoundException("Arquivo WA_MRG não encontrado.", sourceMrgPath);
-        if (string.IsNullOrWhiteSpace(imageUrlTemplate) ||
-            !imageUrlTemplate.Contains("{id}", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException(
-                "URL das imagens deve conter o placeholder {id}. Ex.: " +
-                "https://www.basededatostea.xyz/img/lmfv/{id}.jpg",
-                nameof(imageUrlTemplate));
-
-        var slug = Slugify(name);
-        if (string.IsNullOrEmpty(slug))
-            throw new ArgumentException("Nome inválido para criar pasta.", nameof(name));
-
-        var existing = (await ListAsync()).ToList();
-        if (existing.Any(m => string.Equals(m.Slug, slug, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException($"Já existe um mod com o nome '{name}'.");
-
-        var modFolder = Path.Combine(ModRoot, slug);
-        Directory.CreateDirectory(modFolder);
-
-        var gameFileName = Path.GetFileName(sourceGamePath);
-        var mrgFileName  = Path.GetFileName(sourceMrgPath);
-
-        var destGame = Path.Combine(modFolder, gameFileName);
-        var destMrg  = Path.Combine(modFolder, mrgFileName);
-
-        File.Copy(sourceGamePath, destGame, overwrite: true);
-        File.Copy(sourceMrgPath,  destMrg,  overwrite: true);
-
-        // Copy chartable next to the game file if it exists alongside the source
-        var sourceCharTable = Path.Combine(
-            Path.GetDirectoryName(sourceGamePath) ?? "",
-            "chartable.tbl");
-        if (File.Exists(sourceCharTable))
-        {
-            File.Copy(sourceCharTable,
-                Path.Combine(modFolder, "chartable.tbl"),
-                overwrite: true);
-        }
-
-        var mod = new Mod
-        {
-            Name             = name.Trim(),
-            Slug             = slug,
-            GameFileName     = gameFileName,
-            MrgFileName      = mrgFileName,
-            ImageUrlTemplate = imageUrlTemplate.Trim(),
-            CreatedAt        = DateTime.Now,
-        };
-
-        existing.Add(mod);
-        await SaveIndexAsync(existing);
-
-        return mod;
+        // Caminho legado mantido como compat: yugioh-tools não cria
+        // mais mods via SLUS/MRG (isso migrou pro yugiho-download-json).
+        // Chamadas remanescentes lançam para evitar regressão silenciosa.
+        throw new NotSupportedException(
+            "Cadastro direto via SLUS/MRG não é mais suportado neste app. " +
+            "Use o importador de catálogo em /mods.");
     }
 
     public async Task UpdateAsync(Mod mod)
@@ -133,6 +121,9 @@ public class FileModRepository : IModRepository
     public string GetModFolderPath(Mod mod) =>
         Path.Combine(ModRoot, mod.Slug);
 
+    /// <summary>Raiz onde os mods importados são descompactados.</summary>
+    public static string GetModsRoot() => ModRoot;
+
     private static async Task SaveIndexAsync(IReadOnlyList<Mod> mods)
     {
         Directory.CreateDirectory(ModRoot);
@@ -146,7 +137,6 @@ public class FileModRepository : IModRepository
         foreach (var c in Path.GetInvalidFileNameChars())
             s = s.Replace(c, '_');
         s = s.Replace(' ', '_');
-        // Collapse multiple underscores
         while (s.Contains("__")) s = s.Replace("__", "_");
         return s.Trim('_', '.');
     }

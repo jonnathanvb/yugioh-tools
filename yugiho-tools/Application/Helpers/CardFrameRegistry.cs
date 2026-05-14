@@ -59,23 +59,11 @@ public static class CardFrameRegistry
     public const int AtkLabelW = 24, AtkLabelH = 13;
     public const int DefLabelW = 24, DefLabelH = 13;
 
-    public const int FrameW = CardFrameDecoder.CanvasWidth;
-    public const int FrameH = CardFrameDecoder.CanvasHeight;
-
-    /// <summary>
-    /// Lê as posições reais de ATK/DEF/nome/atributo direto do SLUS_014.11.
-    /// Offsets vêm de <c>getPositionValues()</c> no JS BackgrounEdit.
-    /// </summary>
-    public static void LoadPositions(byte[] slus)
-    {
-        if (slus is null || slus.Length < 104601) return;
-        ArtX  = slus[103476];  ArtY  = slus[103500];
-        NameX = slus[103624];  NameY = slus[103676];
-        AtkX  = slus[104112];  AtkY  = slus[104132];
-        DefX  = slus[104252];  DefY  = slus[104272];
-        StX   = slus[104396];  StY   = slus[104432];
-        AttrX = slus[104580];  AttrY = slus[104600];
-    }
+    // Canvas dimensions da moldura. Bate com o tamanho original do
+    // sprite (144x200 px); mantido como const pra que a UI possa usar
+    // como referência sem depender de helpers de decodificação ROM.
+    public const int FrameW = 144;
+    public const int FrameH = 200;
 
     /// <summary>
     /// Carrega posições do JSON pré-extraído. Usado quando o ROM já
@@ -98,13 +86,6 @@ public static class CardFrameRegistry
 
     /// <summary>True se o registry foi populado com sucesso.</summary>
     public static bool HasFrames => Frames.Count > 0;
-
-    public static void Load(byte[] mrg)
-    {
-        Frames.Clear();
-        var decoded = CardFrameDecoder.DecodeAll(mrg);
-        foreach (var kv in decoded) Frames[kv.Key] = kv.Value;
-    }
 
     /// <summary>
     /// Popula o registry com data URLs já decodificadas (lidas do disco).

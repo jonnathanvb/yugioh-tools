@@ -1,19 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
 
     <PropertyGroup>
-        <!-- Multi-plataforma: Windows (full feature) + macOS via MacCatalyst.
-             - Windows: screen capture + hotkey global + gamepad XInput + auto-update Velopack.
-             - MacCatalyst: screen capture via CoreGraphics; hotkey/gamepad/auto-update no-op
-               (limitação documentada — sandbox MacCatalyst restringe APIs globais).
-
-             IMPORTANTE: cada TFM só é incluído no host que consegue compilá-lo:
-             - Windows TFM precisa do Windows App SDK (e XamlCompiler.exe nativo).
-             - MacCatalyst TFM precisa do Xcode + Mac SDK.
-             Sem essa condicional, restaurar maccatalyst em Windows tenta puxar
-             runtime packs do Mono que vêm via workload manifest e quebra com
-             NU1101/NU1102 ("Mono.win-x64 10.0.7" não existe no nuget.org). -->
-        <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
-        <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
+        <TargetFramework Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFramework>
+        <TargetFramework Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFramework>
 
         <OutputType>Exe</OutputType>
         <RootNamespace>yugiho_tools</RootNamespace>
@@ -61,7 +50,7 @@
              arquitetura concreta — sem isso, o XamlCompiler falha com
              "WindowsAppSDKSelfContained requires a supported Windows
              architecture". Publish com -r sobrescreve. -->
-        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == 'windows'">win-x64</RuntimeIdentifier>
     </PropertyGroup>
 
     <!-- ─────────── MacCatalyst-only properties ─────────── -->
@@ -69,10 +58,18 @@
         <!-- macOS 13 (Ventura) cobre Apple Silicon e Intel modernos com
              MacCatalyst 16+. Reduz versão mínima se precisar suportar Macs
              mais antigos. -->
-        <SupportedOSPlatformVersion>16.0</SupportedOSPlatformVersion>
+        <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
         <!-- Apple Silicon primeiro; adicione maccatalyst-x64 se precisar
              rodar em Mac Intel. -->
         <RuntimeIdentifiers>maccatalyst-arm64</RuntimeIdentifiers>
+
+        <!-- Default RID para builds Debug / design-time (quando -r não é
+             passado). Sem isso o Rider resolve o RID via design-time build
+             e acaba caindo no default do Windows ('win-x64'), montando o
+             caminho errado pro .app (net10.0-maccatalyst/win-x64/...).
+             Com o default explícito, o output fica em
+             bin/$(Config)/net10.0-maccatalyst/maccatalyst-arm64/. -->
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == 'macos'">maccatalyst-arm64</RuntimeIdentifier>
     </PropertyGroup>
 
     <ItemGroup>

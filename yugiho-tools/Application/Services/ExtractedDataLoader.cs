@@ -7,13 +7,32 @@ using yugiho_tools.Infrastructure.Storage;
 namespace yugiho_tools.Application.Services;
 
 /// <summary>
-/// Lê <c>MOD/{slug}/data.json</c> e reidrata um <see cref="LoadedRomData"/>
-/// — versão "atalho" do <c>LoadRomDataUseCase</c> que substitui o parse
-/// binário pesado quando o JSON pré-extraído está disponível. Usado pelo
-/// <see cref="LoadedRomCache"/> antes de cair no parser.
+/// Lê <c>MODs/{slug}/data.json</c> + pastas de assets (cards, frames,
+/// attributes, duelists, guardians, star, types) e reidrata um
+/// <see cref="LoadedRomData"/> pronto pra consumo na UI.
+///
+/// Estrutura esperada (formato distribuído via ZIP do catálogo):
+/// <code>
+/// MODs/{slug}/
+///   data.json
+///   cards/      attributes/  duelists/  frames/
+///   guardians/  star/        types/
+/// </code>
+/// A pasta <c>names/</c> não é mais consumida (foi removida do pipeline).
 /// </summary>
 public class ExtractedDataLoader
 {
+    // Subpastas dentro da raiz do mod importado.
+    public const string CardsDir      = "cards";
+    public const string FramesDir     = "frames";
+    public const string TypesDir      = "types";
+    public const string GuardiansDir  = "guardians";
+    public const string AttributesDir = "attributes";
+    public const string DuelistsDir   = "duelists";
+    public const string StarDir       = "star";
+
+    public const string ThumbnailsFile = "thumbnails.gray";
+
     private readonly IModRepository          _repo;
     private readonly ExtractedDataRepository _store;
 
@@ -26,11 +45,6 @@ public class ExtractedDataLoader
     public bool HasExtractedData(Mod mod)
         => _store.Exists(_repo.GetModFolderPath(mod));
 
-    /// <summary>
-    /// Lê o JSON e reconstrói o <see cref="LoadedRomData"/> em memória.
-    /// Retorna null se o JSON não existe ou está corrompido — caller
-    /// cai no parser binário.
-    /// </summary>
     public async Task<LoadedRomData?> TryLoadAsync(Mod mod)
     {
         var folder = _repo.GetModFolderPath(mod);
@@ -48,33 +62,39 @@ public class ExtractedDataLoader
             SaTec  = d.SaTec.Length  == 722 ? d.SaTec  : new ushort[722],
         }).ToList();
 
-        // Popula os registries estáticos lendo os BMPs do disco que o
-        // ModExtractor escreveu. Como são data URLs em base64 (decodadas
-        // do disco), o cardCover renderiza o frame + arte normalmente.
         LoadCardImagesFromDisk(folder, cards);
-        // Bytes grayscale 40×32 — usados pelo OpenCV detector. Sem
-        // isso, o "Escanear emulador" na home não acha nenhuma carta
-        // (todos os ThumbnailPixels nulos depois que o MRG sumiu).
         LoadThumbnailGraysFromDisk(folder, cards);
         LoadFramesFromDisk(folder);
         LoadExtractedAssetsFromDisk(folder);
-        // Posições do frame (ATK/DEF/nome/atributo/estrelas) agora vêm
-        // do JSON — sem dependência do SLUS no runtime.
         CardFrameRegistry.LoadPositions(data.Positions);
         CardFrameRegistry.LoadFusionResults(cards);
 
         return new LoadedRomData(cards, duelists, data.Positions);
     }
 
-    /// <summary>
-    /// Lê os BMPs em <c>extracted/cards/</c> e popula
-    /// <see cref="CardImage.LoadFromCards"/> com data URLs montadas
-    /// localmente. Se algum BMP estiver faltando, a carta cai no
-    /// fallback TEA via <c>CardImage.Url</c>.
-    /// </summary>
+    /// <summary>Resolve um subdir tentando primeiro o formato novo
+    /// (flat) e caindo no legado <c>extracted/{name}</c> só se existir,
+    /// pra não quebrar mods já instalados via fluxo antigo durante a
+    /// transição.</summary>
+    private static string ResolveAssetDir(string modFolder, string name)
+    {
+        var flat = Path.Combine(modFolder, name);
+        if (Directory.Exists(flat)) return flat;
+        var legacy = Path.Combine(modFolder, "extracted", name);
+        return Directory.Exists(legacy) ? legacy : flat;
+    }
+
+    private static string ResolveAssetFile(string modFolder, string name)
+    {
+        var flat = Path.Combine(modFolder, name);
+        if (File.Exists(flat)) return flat;
+        var legacy = Path.Combine(modFolder, "extracted", name);
+        return File.Exists(legacy) ? legacy : flat;
+    }
+
     private static void LoadCardImagesFromDisk(string modFolder, List<Card> cards)
     {
-        var dir = Path.Combine(modFolder, ModExtractor.CardsDir);
+        var dir = ResolveAssetDir(modFolder, CardsDir);
         if (!Directory.Exists(dir)) return;
         foreach (var c in cards)
         {
@@ -91,17 +111,10 @@ public class ExtractedDataLoader
         CardImage.LoadFromCards(cards);
     }
 
-    /// <summary>
-    /// Lê <c>extracted/thumbnails.gray</c> e popula
-    /// <see cref="Card.ThumbnailPixels"/> de cada carta. Sem isso o
-    /// detector OpenCV não tem template pra match e a função
-    /// "Escanear emulador" na home não acha nenhuma carta — porque o
-    /// MRG (fonte original dos pixels) é apagado depois da extração.
-    /// </summary>
     private static void LoadThumbnailGraysFromDisk(string modFolder, List<Card> cards)
     {
         const int thumbBytes = 40 * 32;
-        var path = Path.Combine(modFolder, ModExtractor.ThumbnailsFile);
+        var path = ResolveAssetFile(modFolder, ThumbnailsFile);
         if (!File.Exists(path)) return;
         try
         {
@@ -121,16 +134,12 @@ public class ExtractedDataLoader
                 c.ThumbnailPixels = slice;
             }
         }
-        catch { /* arquivo corrompido; cartas ficam sem template — detect falha mas app não quebra */ }
+        catch { /* thumbnails ausentes → detect falha mas app não quebra */ }
     }
 
-    /// <summary>
-    /// Lê os 70 BMPs de moldura em <c>extracted/frames/</c> e popula o
-    /// <see cref="CardFrameRegistry"/>. Filename: <c>{cycle}_{color}.png</c>.
-    /// </summary>
     private static void LoadFramesFromDisk(string modFolder)
     {
-        var dir = Path.Combine(modFolder, ModExtractor.FramesDir);
+        var dir = ResolveAssetDir(modFolder, FramesDir);
         if (!Directory.Exists(dir)) return;
         var dict = new Dictionary<(int, int), string>();
         foreach (var path in Directory.EnumerateFiles(dir, "*.png"))
@@ -151,31 +160,11 @@ public class ExtractedDataLoader
         CardFrameRegistry.LoadFromMemory(dict);
     }
 
-    /// <summary>
-    /// Lê <c>extracted/names/{cardId-1}.png</c>, <c>extracted/attributes/{attrId}.png</c>
-    /// e <c>extracted/star/0.png</c>, popula o <see cref="ExtractedAssets"/>.
-    /// Imagens viram data URLs base64 — UI usa direto em &lt;img src&gt;.
-    /// </summary>
     private static void LoadExtractedAssetsFromDisk(string modFolder)
     {
         ExtractedAssets.Reset();
 
-        // Nomes: arquivo o.png corresponde a card index o (0-based);
-        // CardId é 1-based, então armazenamos com cardId = o + 1.
-        var namesDir = Path.Combine(modFolder, "extracted/names");
-        if (Directory.Exists(namesDir))
-        {
-            foreach (var path in Directory.EnumerateFiles(namesDir, "*.png"))
-            {
-                var name = Path.GetFileNameWithoutExtension(path);
-                if (!int.TryParse(name, out var idx)) continue;
-                var url = ReadAsDataUrl(path);
-                if (url is not null) ExtractedAssets.SetName(idx + 1, url);
-            }
-        }
-
-        // Atributos
-        var attrDir = Path.Combine(modFolder, "extracted/attributes");
+        var attrDir = ResolveAssetDir(modFolder, AttributesDir);
         if (Directory.Exists(attrDir))
         {
             foreach (var path in Directory.EnumerateFiles(attrDir, "*.png"))
@@ -187,16 +176,14 @@ public class ExtractedDataLoader
             }
         }
 
-        // Star (único arquivo)
-        var starPath = Path.Combine(modFolder, "extracted/star/0.png");
+        var starPath = Path.Combine(ResolveAssetDir(modFolder, StarDir), "0.png");
         if (File.Exists(starPath))
         {
             var url = ReadAsDataUrl(starPath);
             if (url is not null) ExtractedAssets.SetStar(url);
         }
 
-        // Duelistas (39 ou 40 portraits)
-        var duelistDir = Path.Combine(modFolder, "extracted/duelists");
+        var duelistDir = ResolveAssetDir(modFolder, DuelistsDir);
         if (Directory.Exists(duelistDir))
         {
             foreach (var path in Directory.EnumerateFiles(duelistDir, "*.png"))
@@ -208,9 +195,7 @@ public class ExtractedDataLoader
             }
         }
 
-        // Tipos (24 sprites 16×16) — usados tanto no detalhe da carta
-        // quanto inline na descrição (marcador <_N_>).
-        var typesDir = Path.Combine(modFolder, "extracted/types");
+        var typesDir = ResolveAssetDir(modFolder, TypesDir);
         if (Directory.Exists(typesDir))
         {
             foreach (var path in Directory.EnumerateFiles(typesDir, "*.png"))
@@ -222,9 +207,7 @@ public class ExtractedDataLoader
             }
         }
 
-        // Guardians (sprites 16×16). Os arquivos são nomeados 1..N para
-        // alinhar com o ID do guardian star (0 = None, sem ícone).
-        var guardiansDir = Path.Combine(modFolder, "extracted/guardians");
+        var guardiansDir = ResolveAssetDir(modFolder, GuardiansDir);
         if (Directory.Exists(guardiansDir))
         {
             foreach (var path in Directory.EnumerateFiles(guardiansDir, "*.png"))
@@ -264,9 +247,6 @@ public class ExtractedDataLoader
         FusionMaterials = c.Fusions.Select(f => f.Material).ToList(),
         FusionResults   = c.Fusions.Select(f => f.Result).ToList(),
         IsRitual       = c.IsRitual,
-        // IsFusion: lab pode ou não trazer; se não trouxe, deriva da
-        // própria existência de fusões em que é resultado (FusionResults
-        // popula isso quando temos a tabela completa).
         IsFusion       = c.IsFusion || c.Fusions.Any(f => f.Result == c.Id - 1),
         Limited        = c.Limited,
         Password       = c.Password,
