@@ -71,13 +71,14 @@ public static class CardMetadata
         new(4,  "Beast-Warrior"), new(5,  "Beast"),
         new(6,  "Winged Beast"),  new(7,  "Fiend"),
         new(8,  "Fairy"),         new(9,  "Insect"),
-        new(10, "Dinosaur"),      new(11, "Psychic"),
-        new(12, "Fish"),          new(13, "Divine-Beast"),
+        new(10, "Dinosaur"),      new(11, "Reptile"),
+        new(12, "Fish"),          new(13, "SeaSerpent"),
         new(14, "Machine"),       new(15, "Thunder"),
         new(16, "Aqua"),          new(17, "Pyro"),
         new(18, "Rock"),          new(19, "Plant"),
         new(20, "Magic"),         new(21, "Trap"),
         new(22, "Ritual"),        new(23, "Equip"),
+        new(24, "Psychic"),        new(25, "Divine-Beast"),
     ];
 
     private static readonly CardCategoryEntry[] DefaultAttributes =

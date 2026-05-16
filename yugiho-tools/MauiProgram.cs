@@ -58,6 +58,24 @@ public static class MauiProgram
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
+
+#if MACCATALYST
+        // AddBlazorWebViewDeveloperTools nem sempre aplica no MacCatalyst
+        // (bug recorrente entre versões do .NET MAUI). Força via handler
+        // setando WKPreferences.developerExtrasEnabled diretamente —
+        // habilita o Web Inspector do Safari pra qualquer BlazorWebView.
+        Microsoft.AspNetCore.Components.WebView.Maui.BlazorWebViewHandler
+            .BlazorWebViewMapper
+            .AppendToMapping("EnableSafariInspector", (handler, view) =>
+            {
+                if (handler.PlatformView is WebKit.WKWebView wk)
+                {
+                    wk.Configuration.Preferences.SetValueForKey(
+                        Foundation.NSObject.FromObject(true),
+                        new Foundation.NSString("developerExtrasEnabled"));
+                }
+            });
+#endif
 #endif
 
         return builder.Build();

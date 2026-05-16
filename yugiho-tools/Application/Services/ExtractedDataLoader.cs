@@ -177,28 +177,22 @@ public class ExtractedDataLoader
     }
 
     /// <summary>Compat: layout antigo onde <c>cards/{id}.png</c> ficavam
-    /// na raiz. Mantido pra não quebrar mods já importados.</summary>
+    /// na raiz. Mantido pra não quebrar mods já importados. Também
+    /// passou pra URL <c>modimg://</c> em vez de inline base64.</summary>
     private static async Task LoadFlatCardsLegacyAsync(
         string cardsDir, List<Card> cards,
         IProgress<LoadProgress>? progress, CancellationToken ct)
     {
+        var relBase = GetAppDataRelativePath(cardsDir);
         int done = 0, total = cards.Count;
         foreach (var c in cards)
         {
             ct.ThrowIfCancellationRequested();
             var path = Path.Combine(cardsDir, $"{c.CardId}.png");
             if (File.Exists(path))
-            {
-                try
-                {
-                    var bytes = File.ReadAllBytes(path);
-                    c.ModImageDataUrl =
-                        $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
-                }
-                catch { /* skip — cai pro template */ }
-            }
+                c.ModImageDataUrl = AppDataUrl.For($"{relBase}/{c.CardId}.png");
             done++;
-            if (done % 50 == 0)
+            if (done % 100 == 0)
             {
                 await Task.Yield();
                 progress?.Report(new(
@@ -220,12 +214,17 @@ public class ExtractedDataLoader
         return null;
     }
 
-    /// <summary>Lê todos os arquivos da variante (png ou jpg) e grava o
-    /// data URL na carta correspondente via <paramref name="setter"/>.
-    /// Suporta png e jpg porque <c>sd</c> usa JPEG (menor) e as outras
-    /// variantes PNG. Usa <see cref="File.ReadAllBytes"/> sync (mais
-    /// previsível no Mac Catalyst que o async) e dá <see cref="Task.Yield"/>
-    /// a cada 32 cartas pra liberar o thread pool e cancelamento.</summary>
+    /// <summary>Resolve uma URL <c>modimg://</c> pra cada carta da variante,
+    /// SEM ler bytes — o scheme handler do <see cref="WebKit.WKWebView"/>
+    /// (no MacCatalyst) ou o handler do WebView2 (Windows) lê on-demand
+    /// quando o navegador faz GET na URL.
+    ///
+    /// <para>Por que não <c>data:image/...;base64,...</c>? O BlazorWebView
+    /// serializa o RenderBatch como UMA string JSON pelo IPC. Com 50 cartas
+    /// HD inline (380 KB cada em base64), passa de 200 MB e estoura o
+    /// limite de 256 MB do System.Text.Json. URLs <c>modimg://</c> só têm
+    /// ~80 bytes cada, então o HTML fica pequeno e o WebView busca o
+    /// binário em paralelo via handler de scheme.</para></summary>
     private static async Task LoadVariantIntoAsync(
         string cardsDir, string variant, List<Card> cards,
         Action<Card, string> setter,
@@ -234,34 +233,34 @@ public class ExtractedDataLoader
     {
         var dir = Path.Combine(cardsDir, variant);
         if (!Directory.Exists(dir)) return;
+
+        // Caminho relativo ao AppDataDirectory pra montar a URL do scheme.
+        // Tudo abaixo de AppDataDirectory mapeia 1:1 pra modimg:///{path}.
+        var relBase = GetAppDataRelativePath(dir);
+
         int done = 0, total = cards.Count, errors = 0;
         string? lastError = null;
         foreach (var c in cards)
         {
             ct.ThrowIfCancellationRequested();
-            var (path, mime) = FindCardFile(dir, c.CardId);
+            var (path, _) = FindCardFile(dir, c.CardId);
             if (path is not null)
             {
                 try
                 {
-                    var bytes = File.ReadAllBytes(path);
-                    setter(c, $"data:{mime};base64,{Convert.ToBase64String(bytes)}");
+                    // Só monta a URL — File.Exists já confirmou em FindCardFile.
+                    var fileName = Path.GetFileName(path);
+                    setter(c, AppDataUrl.For($"{relBase}/{fileName}"));
                 }
                 catch (Exception ex)
                 {
-                    // Conta erros e guarda último pra reportar na barra
-                    // de progresso — antes eram silenciosamente engolidos
-                    // e o usuário só via "ficou parado".
                     errors++;
                     lastError = $"{Path.GetFileName(path)}: {ex.GetType().Name}";
                 }
             }
             done++;
-            if (done % 50 == 0)
+            if (done % 100 == 0)
             {
-                // Libera thread pool periodicamente — sem isso, 700+ reads
-                // sync seguidos podem inanir outras tasks (incluindo o
-                // próprio handler de Progress que faz dispatch pra UI).
                 await Task.Yield();
                 var msg = errors > 0
                     ? $"{done}/{total} ({errors} erros · {lastError})"
@@ -269,10 +268,23 @@ public class ExtractedDataLoader
                 progress?.Report(new((int)(100.0 * done / total), msg));
             }
         }
-        // Reporta total final mesmo se não bater num múltiplo de 50.
         if (errors > 0)
             progress?.Report(new(100,
                 $"{done}/{total} ({errors} erros · último: {lastError})"));
+    }
+
+    /// <summary>Converte um path absoluto pra rota relativa a partir do
+    /// <see cref="FileSystem.AppDataDirectory"/>, com separadores '/'
+    /// (consumível como URL). Usado pra montar URLs <c>modimg://</c>.</summary>
+    private static string GetAppDataRelativePath(string absPath)
+    {
+        var root = FileSystem.AppDataDirectory;
+        var full = Path.GetFullPath(absPath);
+        if (!full.StartsWith(root, StringComparison.Ordinal))
+            return full.Replace(Path.DirectorySeparatorChar, '/');
+        return full[root.Length..]
+            .TrimStart(Path.DirectorySeparatorChar)
+            .Replace(Path.DirectorySeparatorChar, '/');
     }
 
     private static (string? Path, string Mime) FindCardFile(string dir, int cardId)
@@ -356,6 +368,7 @@ public class ExtractedDataLoader
     {
         var dir = ResolveAssetDir(modFolder, FramesDir);
         if (!Directory.Exists(dir)) return;
+        var relBase = GetAppDataRelativePath(dir);
         var dict = new Dictionary<(int, int), string>();
         foreach (var path in Directory.EnumerateFiles(dir, "*.png"))
         {
@@ -364,13 +377,7 @@ public class ExtractedDataLoader
             if (parts.Length != 2) continue;
             if (!int.TryParse(parts[0], out var cy)) continue;
             if (!int.TryParse(parts[1], out var co)) continue;
-            try
-            {
-                var bytes = File.ReadAllBytes(path);
-                dict[(cy, co)] =
-                    $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
-            }
-            catch { /* skip */ }
+            dict[(cy, co)] = AppDataUrl.For($"{relBase}/{name}.png");
         }
         CardFrameRegistry.LoadFromMemory(dict);
     }
@@ -379,70 +386,38 @@ public class ExtractedDataLoader
     {
         ExtractedAssets.Reset();
 
-        var attrDir = ResolveAssetDir(modFolder, AttributesDir);
-        if (Directory.Exists(attrDir))
-        {
-            foreach (var path in Directory.EnumerateFiles(attrDir, "*.png"))
-            {
-                var name = Path.GetFileNameWithoutExtension(path);
-                if (!int.TryParse(name, out var idx)) continue;
-                var url = ReadAsDataUrl(path);
-                if (url is not null) ExtractedAssets.SetAttribute(idx, url);
-            }
-        }
+        // Todos os assets agora viram URLs modimg:// — apenas verificam
+        // existência do arquivo e armazenam o caminho, sem inline base64.
+        LoadIndexedAsModimgUrls(modFolder, AttributesDir, ExtractedAssets.SetAttribute);
+        LoadIndexedAsModimgUrls(modFolder, DuelistsDir,   ExtractedAssets.SetDuelist);
+        LoadIndexedAsModimgUrls(modFolder, TypesDir,      ExtractedAssets.SetType);
+        LoadIndexedAsModimgUrls(modFolder, GuardiansDir,  ExtractedAssets.SetGuardian);
 
         var starPath = Path.Combine(ResolveAssetDir(modFolder, StarDir), "0.png");
         if (File.Exists(starPath))
         {
-            var url = ReadAsDataUrl(starPath);
-            if (url is not null) ExtractedAssets.SetStar(url);
+            var rel = GetAppDataRelativePath(starPath);
+            ExtractedAssets.SetStar(AppDataUrl.For(rel));
         }
 
-        var duelistDir = ResolveAssetDir(modFolder, DuelistsDir);
-        if (Directory.Exists(duelistDir))
-        {
-            foreach (var path in Directory.EnumerateFiles(duelistDir, "*.png"))
-            {
-                var name = Path.GetFileNameWithoutExtension(path);
-                if (!int.TryParse(name, out var idx)) continue;
-                var url = ReadAsDataUrl(path);
-                if (url is not null) ExtractedAssets.SetDuelist(idx, url);
-            }
-        }
-
-        var typesDir = ResolveAssetDir(modFolder, TypesDir);
-        if (Directory.Exists(typesDir))
-        {
-            foreach (var path in Directory.EnumerateFiles(typesDir, "*.png"))
-            {
-                var name = Path.GetFileNameWithoutExtension(path);
-                if (!int.TryParse(name, out var idx)) continue;
-                var url = ReadAsDataUrl(path);
-                if (url is not null) ExtractedAssets.SetType(idx, url);
-            }
-        }
-
-        var guardiansDir = ResolveAssetDir(modFolder, GuardiansDir);
-        if (Directory.Exists(guardiansDir))
-        {
-            foreach (var path in Directory.EnumerateFiles(guardiansDir, "*.png"))
-            {
-                var name = Path.GetFileNameWithoutExtension(path);
-                if (!int.TryParse(name, out var idx)) continue;
-                var url = ReadAsDataUrl(path);
-                if (url is not null) ExtractedAssets.SetGuardian(idx, url);
-            }
-        }
     }
 
-    private static string? ReadAsDataUrl(string path)
+    /// <summary>Itera <c>{id}.png</c> dentro de <c>{modFolder}/{subdir}</c>
+    /// e popula <see cref="ExtractedAssets"/> via <paramref name="setter"/>
+    /// usando URLs <c>modimg://</c>. Não inline base64 — o
+    /// <see cref="WebKit.WKWebView"/> resolve sob demanda.</summary>
+    private static void LoadIndexedAsModimgUrls(
+        string modFolder, string subdir, Action<int, string> setter)
     {
-        try
+        var dir = ResolveAssetDir(modFolder, subdir);
+        if (!Directory.Exists(dir)) return;
+        var relBase = GetAppDataRelativePath(dir);
+        foreach (var path in Directory.EnumerateFiles(dir, "*.png"))
         {
-            var bytes = File.ReadAllBytes(path);
-            return $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (!int.TryParse(name, out var idx)) continue;
+            setter(idx, AppDataUrl.For($"{relBase}/{name}.png"));
         }
-        catch { return null; }
     }
 
     private static Card ToCardEntity(ExtractedCard c) => new Card

@@ -182,8 +182,7 @@ public class SharedImagesService
                 .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault();
             if (first is null) return;
-            var url = ReadAsDataUrl(first);
-            if (url is not null) ExtractedAssets.SetStar(url);
+            ExtractedAssets.SetStar(ToModimgUrl(first));
         }
         catch { /* skip */ }
     }
@@ -197,22 +196,18 @@ public class SharedImagesService
             {
                 var name = Path.GetFileNameWithoutExtension(path);
                 if (!int.TryParse(name, out var id)) continue;
-                var url = ReadAsDataUrl(path);
-                if (url is not null) set(id, url);
+                set(id, ToModimgUrl(path));
             }
         }
         catch { /* best-effort */ }
     }
 
-    private static string? ReadAsDataUrl(string path)
-    {
-        try
-        {
-            var bytes = File.ReadAllBytes(path);
-            return $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
-        }
-        catch { return null; }
-    }
+    /// <summary>Converte path absoluto pra URL servida pelo handler do
+    /// BlazorWebView (modimg:// no Mac, http://modimg.local no Windows).
+    /// Usado pelos handlers que alimentam ExtractedAssets — evita inline
+    /// base64 pesado no IPC do BlazorWebView.</summary>
+    private static string ToModimgUrl(string absPath)
+        => Helpers.AppDataUrl.FromAbsolute(absPath);
 
     public record DownloadProgress(int Percent, string Message);
 
