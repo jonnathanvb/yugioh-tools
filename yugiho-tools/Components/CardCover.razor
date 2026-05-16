@@ -5,18 +5,29 @@
 @inject CurrentModContext ModContext
 
 @*
-   Render uniforme da capa da carta. Em modo MOD compõe três camadas:
-     1. Frame 144×200 decodificado do ROM (cardTransform1).
-     2. Arte 102×96 posicionada em (19,50) — coords de positions.image.
-     3. Overlays HTML com nome, ATK e DEF — o ROM não desenha esses
-        textos no body, eles são compostos em runtime pelo jogo. Como
-        portar o renderer de fonte do FM seria trabalho separado, usamos
-        texto HTML posicionado nos slots corretos (positions.{atk,def,text}).
+   Render uniforme da capa da carta.
 
-   Em modo TEA, fica como antes: <img> simples, frame já vem embutido.
+   Variantes principais (Mod.CardImageVariant):
+     • sd / hd → imagens JÁ MONTADAS (frame + arte + texto baked-in pelo
+       criador do MOD). Renderiza como <img> simples, sem composição.
+     • mini_hd → só a arte 102×96. App monta frame + nome + ATK/DEF
+       como overlay HTML (composição clássica do modo MOD).
+
+   Mini é exclusivo do grafo de fusão; aqui no CardCover só importa o
+   CardImageVariant atual.
 *@
 
-@if (CardImage.UseModImages && CardFrameRegistry.HasFrames)
+@{
+    var variant = ModContext.Current?.CardImageVariant ?? CardVariants.Sd;
+    // Composição (frame + overlay) só faz sentido quando a variante
+    // escolhida traz APENAS a arte do monstro (mini_hd). Pra sd/hd a
+    // imagem já tem tudo desenhado e composição em cima viraria duplo.
+    var compose = CardImage.UseModImages
+                  && CardFrameRegistry.HasFrames
+                  && variant == CardVariants.MiniHd;
+}
+
+@if (compose)
 {
     var frameUrl = CardFrameRegistry.GetFrameForCard(Card);
     var artUrl   = CardImage.Url(ModContext.ImageUrlTemplate, Card.CardId);

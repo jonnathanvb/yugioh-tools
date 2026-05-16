@@ -151,25 +151,10 @@ public class ExtractedDataLoader
             if (mainVariant is not null)
                 await LoadVariantIntoAsync(cardsRoot, mainVariant, cards,
                     (c, url) => c.ModImageDataUrl = url,
-                    // 0..70% da fase: imagem principal é o maior custo.
                     new Progress<LoadProgress>(p =>
                         progress?.Report(new(
-                            (int)(70.0 * p.Percent / 100),
+                            p.Percent,
                             $"Imagens {mainVariant} ({p.Message})"))),
-                    ct);
-
-            // Mini pro grafo de fusão — separada pra que o usuário possa
-            // ter HD na vista principal e mini_sd compacto no grafo.
-            var miniVariant = ResolveExistingVariant(
-                cardsRoot, mod.FusionMiniVariant, CardVariants.MiniSd);
-            if (miniVariant is not null)
-                await LoadVariantIntoAsync(cardsRoot, miniVariant, cards,
-                    (c, url) => c.MiniImageDataUrl = url,
-                    // 70..100% — mini é mais leve.
-                    new Progress<LoadProgress>(p =>
-                        progress?.Report(new(
-                            70 + (int)(30.0 * p.Percent / 100),
-                            $"Imagens {miniVariant} ({p.Message})"))),
                     ct);
         }
 

@@ -18,10 +18,10 @@
                 disponíveis dependem do que o pacote do MOD trouxe.
             </MudText>
 
-            @* ─── Imagem principal ──────────────────────────────── *@
+            @* ─── Variante de imagem ────────────────────────────── *@
             <MudPaper Class="pa-3" Style="background:#0f0f24; border:1px solid #2a2a6e;">
                 <MudText Typo="Typo.subtitle2" Style="color:#c8a415;" Class="mb-2">
-                    Imagem principal (catálogo / detalhes)
+                    Variante de imagem da carta
                 </MudText>
 
                 @if (_mainOptions.Count == 0)
@@ -66,46 +66,6 @@
                 }
             </MudPaper>
 
-            @* ─── Mini (grafo de fusão) ─────────────────────────── *@
-            <MudPaper Class="pa-3" Style="background:#0f0f24; border:1px solid #2a2a6e;">
-                <MudText Typo="Typo.subtitle2" Style="color:#c8a415;" Class="mb-2">
-                    Mini (grafo de fusão)
-                </MudText>
-
-                @if (_miniOptions.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                        Nenhuma variante mini encontrada.
-                    </MudAlert>
-                }
-                else
-                {
-                    <div class="d-flex gap-3 flex-wrap">
-                        @foreach (var v in _miniOptions)
-                        {
-                            var selected = string.Equals(v, _miniVariant, StringComparison.OrdinalIgnoreCase);
-                            <div @onclick="() => _miniVariant = v"
-                                 style="@VariantCardStyle(selected)">
-                                @{ var preview = _mainPreviews.GetValueOrDefault(v); }
-                                @if (preview is not null)
-                                {
-                                    <img src="@preview" alt=""
-                                         style="display:block; margin:0 auto;
-                                                max-width:96px; max-height:96px;
-                                                object-fit:contain;
-                                                image-rendering:pixelated;
-                                                background:#000; border-radius:3px;" />
-                                }
-                                <MudText Typo="Typo.caption"
-                                         Style="@(selected ? "color:#c8a415;font-weight:700;" : "color:#fff;")"
-                                         Align="Align.Center" Class="mt-1">
-                                    @VariantLabel(v)
-                                </MudText>
-                            </div>
-                        }
-                    </div>
-                }
-            </MudPaper>
         </MudStack>
     </DialogContent>
 
@@ -123,37 +83,25 @@
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter] public Mod Mod { get; set; } = default!;
 
-    private List<string> _allVariants = [];
     private List<string> _mainOptions = [];
-    private List<string> _miniOptions = [];
     private Dictionary<string, string?> _mainPreviews = new();
 
     private string _mainVariant = "";
-    private string _miniVariant = "";
     private bool   _saving;
 
     protected override void OnInitialized()
     {
         var folder = ModRepo.GetModFolderPath(Mod);
-        _allVariants = ExtractedDataLoader.GetAvailableCardVariants(folder).ToList();
-
-        // Particiona em "principal" (mini_hd / sd / hd) vs "mini" (mini_sd / mini_hd).
-        // mini_hd aparece em ambos — pode servir como display principal
-        // (preview compacto) ou como mini do grafo.
-        _mainOptions = _allVariants
-            .Where(v => CardVariants.MainOptions.Contains(v, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-        _miniOptions = _allVariants
-            .Where(v => CardVariants.MiniOptions.Contains(v, StringComparer.OrdinalIgnoreCase))
-            .ToList();
+        // Mostra TODAS as variantes presentes no disco — sd, hd, mini_sd,
+        // mini_hd — pra que o usuário escolha uma única usada em todo o app.
+        _mainOptions = ExtractedDataLoader.GetAvailableCardVariants(folder).ToList();
 
         // Preview de cada variante (1ª carta disponível). Carregado uma
         // única vez no Init pra não relê-lo a cada re-render.
-        foreach (var v in _allVariants)
+        foreach (var v in _mainOptions)
             _mainPreviews[v] = ExtractedDataLoader.GetVariantPreview(folder, v);
 
         _mainVariant = ResolveCurrent(Mod.CardImageVariant, _mainOptions, CardVariants.Sd);
-        _miniVariant = ResolveCurrent(Mod.FusionMiniVariant, _miniOptions, CardVariants.MiniSd);
     }
 
     private static string ResolveCurrent(string saved, List<string> available, string fallback)
@@ -187,8 +135,7 @@
         _saving = true;
         try
         {
-            Mod.CardImageVariant  = _mainVariant;
-            Mod.FusionMiniVariant = _miniVariant;
+            Mod.CardImageVariant = _mainVariant;
             await ModRepo.UpdateAsync(Mod);
 
             // Se este MOD está ativo, recarrega pra que as imagens novas

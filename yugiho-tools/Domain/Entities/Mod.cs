@@ -39,16 +39,12 @@ public class Mod
     public bool ShowAtkDefLabels { get; set; }
 
     /// <summary>Variante de imagem da carta (subpasta dentro de
-    /// <c>cards/</c>) usada na visualização principal. Valores típicos:
-    /// <c>sd</c> (JPEG, sempre presente), <c>hd</c> (PNG hi-res, opcional),
-    /// <c>mini_hd</c> (PNG renderizado pelo software com a moldura).
+    /// <c>cards/</c>) usada em TODO o app — catálogo, detalhes E grafo
+    /// de fusão. Valores típicos: <c>sd</c> (JPEG, sempre presente),
+    /// <c>hd</c> (PNG hi-res, opcional), <c>mini_hd</c> (PNG renderizado
+    /// pelo software com a moldura), <c>mini_sd</c> (sprite original).
     /// Default <c>sd</c> — sempre obrigatório no pacote.</summary>
     public string CardImageVariant { get; set; } = "sd";
-
-    /// <summary>Variante de mini (40×32 ou 102×96) usada no grafo de
-    /// fusão. Valores: <c>mini_sd</c> (sprite original, default) ou
-    /// <c>mini_hd</c> (versão renderizada com a moldura).</summary>
-    public string FusionMiniVariant { get; set; } = "mini_sd";
 }
 
 /// <summary>Constantes pra nomes de variantes de carta — evita typos
@@ -60,9 +56,6 @@ public static class CardVariants
     public const string MiniSd  = "mini_sd";
     public const string MiniHd  = "mini_hd";
 
-    /// <summary>Variantes válidas pra display principal (Mod.CardImageVariant).</summary>
-    public static readonly string[] MainOptions = [MiniHd, Sd, Hd];
-
-    /// <summary>Variantes válidas pro grafo de fusão (Mod.FusionMiniVariant).</summary>
-    public static readonly string[] MiniOptions = [MiniSd, MiniHd];
+    /// <summary>Variantes válidas pra display principal.</summary>
+    public static readonly string[] MainOptions = [MiniSd, MiniHd, Sd, Hd];
 }
