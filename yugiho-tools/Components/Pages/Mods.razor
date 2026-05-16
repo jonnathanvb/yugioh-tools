@@ -157,6 +157,10 @@
                                             Ativar
                                         </MudButton>
                                     }
+                                    <MudIconButton Icon="@Icons.Material.Filled.Tune"
+                                                   Size="Size.Small" Color="Color.Default"
+                                                   Title="Configurar imagens"
+                                                   OnClick="() => OpenConfigAsync(mod)" />
                                     <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                    Size="Size.Small" Color="Color.Error"
                                                    OnClick="() => DeleteAsync(mod)" />
@@ -247,8 +251,21 @@
             await ReloadInstalledAsync();
             Snackbar.Add($"'{mod.Name}' importado.", Severity.Success);
 
-            // Auto-ativa se for o primeiro mod ou se nenhum estiver ativo.
-            if (ModContext.Current is null) SetActive(mod);
+            // Auto-ativa SEMPRE depois de importar — o usuário acabou de
+            // expressar intenção de usar esse mod. Se já tinha outro ativo
+            // (possivelmente quebrado / com estrutura velha), troca pra esse
+            // e força reload pra nova estrutura ser detectada na hora.
+            if (string.Equals(ModContext.CurrentSlug, mod.Slug,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                // Re-importou o mesmo mod (mesmo slug) — ModContext.Set
+                // teria sido no-op por ReferenceEquals. Força reload do cache.
+                _ = ModCache.ReloadAsync();
+            }
+            else
+            {
+                SetActive(mod);
+            }
         }
         catch (Exception ex)
         {
@@ -265,6 +282,22 @@
     {
         ModContext.Set(mod);
         Snackbar.Add($"Mod ativo: {mod.Name}", Severity.Info);
+    }
+
+    private async Task OpenConfigAsync(Mod mod)
+    {
+        var p = new DialogParameters { ["Mod"] = mod };
+        var opts = new DialogOptions
+        {
+            CloseButton  = true,
+            MaxWidth     = MaxWidth.Medium,
+            FullWidth    = true,
+            BackdropClick = false,
+        };
+        var dlg = await DialogService.ShowAsync<ModConfigDialog>("Configurar MOD", p, opts);
+        var result = await dlg.Result;
+        if (result is not null && !result.Canceled)
+            await ReloadInstalledAsync();
     }
 
     private async Task DeleteAsync(Mod mod)

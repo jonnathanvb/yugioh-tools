@@ -63,6 +63,14 @@ public class Card()
     /// </summary>
     public string? ModImageDataUrl { get; set; }
 
+    /// <summary>
+    /// Data URL da variante mini (mini_sd ou mini_hd, conforme
+    /// <see cref="Mod.FusionMiniVariant"/>). Usada exclusivamente pelo
+    /// grafo de fusão — separada da arte principal pra economizar memória
+    /// e permitir variantes diferentes por contexto.
+    /// </summary>
+    public string? MiniImageDataUrl { get; set; }
+
     public string GetTitle() =>
         $"{Name} ({Attack} | {Defense})\t{GuardianStarName(GuardianStar1)} | {GuardianStarName(GuardianStar2)}";
 

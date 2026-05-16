@@ -41,6 +41,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<LocalizationService>();
         builder.Services.AddSingleton<FavoritesService>();
         builder.Services.AddSingleton<LoadedModCache>();
+        builder.Services.AddSingleton<SharedImagesService>();
         // Importação de mods via catálogo público + cache do data.json.
         builder.Services.AddSingleton<ExtractedDataRepository>();
         builder.Services.AddSingleton<ExtractedDataLoader>();

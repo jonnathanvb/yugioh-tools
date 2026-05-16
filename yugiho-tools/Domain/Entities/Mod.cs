@@ -1,35 +1,22 @@
-using yugiho_tools.Domain.ValueObjects;
-
 namespace yugiho_tools.Domain.Entities;
 
 public class Mod
 {
     public string Name { get; set; } = "";
     public string Slug { get; set; } = "";
-    public string GameFileName { get; set; } = "SLUS_014.11";
-    public string MrgFileName  { get; set; } = "WA_MRG.MRG";
 
     /// <summary>
-    /// Template para a URL das imagens das cartas. Deve conter o placeholder
-    /// <c>{id}</c>, que é substituído pelo CardId em tempo de renderização.
-    /// Ex.: <c>https://www.basededatostea.xyz/img/lmfv/{id}.jpg</c>.
+    /// Template (legado) pra URL das imagens das cartas online. Hoje as
+    /// imagens vêm dentro do ZIP do MOD em <c>cards/{variant}/</c>;
+    /// este campo só é consultado como fallback se a variante escolhida
+    /// não tiver a imagem da carta.
     /// </summary>
     public string ImageUrlTemplate { get; set; } = "";
 
-    /// <summary>
-    /// Optional offset profile name (key in Resources/Raw/offset-profiles.json).
-    /// Null/empty = use defaults (original NTSC-U). Mods that relocate ROM tables
-    /// reference a custom profile here.
-    /// </summary>
-    public string? OffsetProfile { get; set; }
+    public DateTime CreatedAt { get; set; }
 
-    public DateTime CreatedAt  { get; set; }
-
-    /// <summary>
-    /// Fonte das imagens das cartas. Default = <c>Mod</c> (arte extraída
-    /// do próprio ROM). <c>Tea</c> usa o <see cref="ImageUrlTemplate"/>
-    /// pra buscar arte HD online.
-    /// </summary>
+    /// <summary>Fonte das imagens. Mantido por compat de schema com o
+    /// mods.json antigo — o app sempre usa <c>Mod</c> hoje.</summary>
     public ImageSource ImageSource { get; set; } = ImageSource.Mod;
 
     /// <summary>
@@ -50,4 +37,32 @@ public class Mod
     /// /<c>Y</c> e <c>DefLabelX/Y</c>.
     /// </summary>
     public bool ShowAtkDefLabels { get; set; }
+
+    /// <summary>Variante de imagem da carta (subpasta dentro de
+    /// <c>cards/</c>) usada na visualização principal. Valores típicos:
+    /// <c>sd</c> (JPEG, sempre presente), <c>hd</c> (PNG hi-res, opcional),
+    /// <c>mini_hd</c> (PNG renderizado pelo software com a moldura).
+    /// Default <c>sd</c> — sempre obrigatório no pacote.</summary>
+    public string CardImageVariant { get; set; } = "sd";
+
+    /// <summary>Variante de mini (40×32 ou 102×96) usada no grafo de
+    /// fusão. Valores: <c>mini_sd</c> (sprite original, default) ou
+    /// <c>mini_hd</c> (versão renderizada com a moldura).</summary>
+    public string FusionMiniVariant { get; set; } = "mini_sd";
+}
+
+/// <summary>Constantes pra nomes de variantes de carta — evita typos
+/// nas comparações espalhadas pelo código.</summary>
+public static class CardVariants
+{
+    public const string Sd      = "sd";
+    public const string Hd      = "hd";
+    public const string MiniSd  = "mini_sd";
+    public const string MiniHd  = "mini_hd";
+
+    /// <summary>Variantes válidas pra display principal (Mod.CardImageVariant).</summary>
+    public static readonly string[] MainOptions = [MiniHd, Sd, Hd];
+
+    /// <summary>Variantes válidas pro grafo de fusão (Mod.FusionMiniVariant).</summary>
+    public static readonly string[] MiniOptions = [MiniSd, MiniHd];
 }

@@ -8,11 +8,26 @@ namespace yugiho_tools.Infrastructure.ModImport;
 /// Entrada do catálogo remoto. JSON na URL pública:
 /// <c>https://blob.macstudio.tech/yugioh/catalago.json</c>
 /// </summary>
+// O servidor expõe o campo do download como "url"; o legado usava "link".
+// Mantemos o nome C# como Link (compat com ModImporter) e aceitamos os dois
+// JSONs via dois construtores serializáveis — o JsonInclude no setter
+// alternativo cobre o esquema antigo.
 public record CatalogEntry(
     [property: JsonPropertyName("id")]   string Id,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("date")] DateTime Date,
-    [property: JsonPropertyName("link")] string Link);
+    [property: JsonPropertyName("url")]  string Link)
+{
+    /// <summary>Compat com o schema antigo (<c>"link"</c>). Quando o JSON
+    /// trouxer ambos, o último a deserializar prevalece — o servidor atual
+    /// só manda <c>"url"</c>, então este só dispara em caches velhos.</summary>
+    [JsonPropertyName("link")]
+    public string LegacyLink
+    {
+        get => Link;
+        init { if (!string.IsNullOrEmpty(value)) Link = value; }
+    }
+}
 
 /// <summary>
 /// Baixa e cacheia o catálogo público de mods. TTL fixo de 30 dias —
@@ -96,7 +111,13 @@ public class RemoteCatalogClient
         try
         {
             using var fs = File.OpenRead(CachePath);
-            return JsonSerializer.Deserialize<List<CatalogEntry>>(fs, JsonOpts);
+            var list = JsonSerializer.Deserialize<List<CatalogEntry>>(fs, JsonOpts);
+            // Cache do schema antigo (campo "link" antes do servidor migrar
+            // pra "url") veio com Link vazio. Devolvemos null pra forçar
+            // refresh — assim o usuário não fica com botão "Importar" quebrado.
+            if (list is not null && list.Any(e => string.IsNullOrEmpty(e.Link)))
+                return null;
+            return list;
         }
         catch { return null; }
     }

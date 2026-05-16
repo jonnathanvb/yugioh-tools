@@ -59,8 +59,6 @@ public class FileModRepository : IModRepository
         {
             Name             = name.Trim(),
             Slug             = slug,
-            GameFileName     = "",
-            MrgFileName      = "",
             ImageUrlTemplate = "",
             CreatedAt        = DateTime.Now,
             ImageSource      = Domain.Entities.ImageSource.Mod,
@@ -69,20 +67,6 @@ public class FileModRepository : IModRepository
         existing.Add(mod);
         await SaveIndexAsync(existing);
         return mod;
-    }
-
-    public async Task<Mod> RegisterAsync(
-        string name,
-        string sourceGamePath,
-        string sourceMrgPath,
-        string imageUrlTemplate)
-    {
-        // Caminho legado mantido como compat: yugioh-tools não cria
-        // mais mods via SLUS/MRG (isso migrou pro yugiho-download-json).
-        // Chamadas remanescentes lançam para evitar regressão silenciosa.
-        throw new NotSupportedException(
-            "Cadastro direto via SLUS/MRG não é mais suportado neste app. " +
-            "Use o importador de catálogo em /mods.");
     }
 
     public async Task UpdateAsync(Mod mod)
@@ -111,12 +95,6 @@ public class FileModRepository : IModRepository
         list.RemoveAt(idx);
         await SaveIndexAsync(list);
     }
-
-    public string GetGameFilePath(Mod mod) =>
-        Path.Combine(ModRoot, mod.Slug, mod.GameFileName);
-
-    public string GetMrgFilePath(Mod mod) =>
-        Path.Combine(ModRoot, mod.Slug, mod.MrgFileName);
 
     public string GetModFolderPath(Mod mod) =>
         Path.Combine(ModRoot, mod.Slug);

@@ -24,6 +24,11 @@ public class AppSettings
     public const string PrefDeepLApiKey      = "settings.deepl.apiKey";
     public const string PrefDeepLPlan        = "settings.deepl.plan";
     public const string PrefTranslationProvider = "settings.translation.provider";
+    public const string PrefSharedAttributesVariant = "settings.sharedImages.attributes";
+    public const string PrefSharedStarVariant       = "settings.sharedImages.star";
+    public const string PrefSharedTypesVariant      = "settings.sharedImages.types";
+
+    public const string DefaultSharedVariant = "sd";
 
     public const int          DefaultMaxGridCards = 50;
     public const string       DefaultShortcutKey  = "F2";
@@ -254,6 +259,33 @@ public class AppSettings
         "deepl"    => DeepLConfigured,
         _          => false,
     };
+
+    // ── Imagens compartilhadas (attributes / star / types) ────────────────
+    /// <summary>Variante (subpasta) usada pra imagens dos atributos.
+    /// Valores típicos: <c>sd</c>, <c>hd</c>, <c>sd_mod</c>, <c>hd_mod</c>.
+    /// Default <c>sd</c>. O <see cref="SharedImagesService"/> resolve
+    /// fallback se a variante salva não existir mais no pacote.</summary>
+    public string SharedAttributesVariant
+    {
+        get => Microsoft.Maui.Storage.Preferences.Default.Get(PrefSharedAttributesVariant, DefaultSharedVariant);
+        set { Microsoft.Maui.Storage.Preferences.Default.Set(PrefSharedAttributesVariant, value ?? DefaultSharedVariant); Changed?.Invoke(); }
+    }
+
+    /// <summary>Variante usada pro ícone da estrela de level. Valores
+    /// típicos: <c>sd</c>, <c>hd</c>. Default <c>sd</c>.</summary>
+    public string SharedStarVariant
+    {
+        get => Microsoft.Maui.Storage.Preferences.Default.Get(PrefSharedStarVariant, DefaultSharedVariant);
+        set { Microsoft.Maui.Storage.Preferences.Default.Set(PrefSharedStarVariant, value ?? DefaultSharedVariant); Changed?.Invoke(); }
+    }
+
+    /// <summary>Variante usada pros ícones de type. Valores típicos:
+    /// <c>sd</c>, <c>hd</c>. Default <c>sd</c>.</summary>
+    public string SharedTypesVariant
+    {
+        get => Microsoft.Maui.Storage.Preferences.Default.Get(PrefSharedTypesVariant, DefaultSharedVariant);
+        set { Microsoft.Maui.Storage.Preferences.Default.Set(PrefSharedTypesVariant, value ?? DefaultSharedVariant); Changed?.Invoke(); }
+    }
 
     /// <summary>Idioma da UI. A persistência efetiva fica no
     /// <see cref="LocalizationService"/> (chave própria); aqui só expomos

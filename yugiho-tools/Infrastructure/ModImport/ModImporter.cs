@@ -40,15 +40,39 @@ public class ModImporter
 
         progress?.Report(new(0, "Baixando pacote…"));
 
-        // Download em memória — pacotes de mod ficam na faixa de poucas
-        // dezenas de MB, dentro do limite confortável de buffer.
-        await using var network = await _http.GetStreamAsync(entry.Link, ct);
-        using var buffer = new MemoryStream();
-        await CopyWithProgressAsync(network, buffer, progress, ct);
+        // ResponseHeadersRead é CRÍTICO — sem isso GetStreamAsync bufferiza
+        // o response inteiro em memória ANTES de retornar, e o usuário
+        // só vê "0%" → "100%" sem progresso visível durante o download.
+        using var resp = await _http.GetAsync(
+            entry.Link, HttpCompletionOption.ResponseHeadersRead, ct);
+        resp.EnsureSuccessStatusCode();
+
+        var contentLength = resp.Content.Headers.ContentLength;
+        await using var network = await resp.Content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream(
+            contentLength is > 0 ? (int)Math.Min(contentLength.Value, int.MaxValue) : 0);
+        await CopyWithProgressAsync(network, buffer, contentLength, progress, ct);
         buffer.Position = 0;
 
         progress?.Report(new(60, "Extraindo arquivos…"));
 
+        // Extração rodada em Task.Run pra não travar a UI — o foreach
+        // sobre zip.Entries com File.WriteAllBytes é CPU/IO síncrono e
+        // sem isso o BlazorWebView congela em mods grandes (722 cartas ×
+        // 4 variantes = ~3000 arquivos).
+        var mod = await Task.Run(() => ExtractAndRegister(
+            buffer, entry, progress, ct), ct);
+
+        progress?.Report(new(100, "Concluído."));
+        return mod;
+    }
+
+    private Mod ExtractAndRegister(
+        MemoryStream buffer,
+        CatalogEntry entry,
+        IProgress<ImportProgress>? progress,
+        CancellationToken ct)
+    {
         var modsRoot = FileModRepository.GetModsRoot();
         Directory.CreateDirectory(modsRoot);
 
@@ -73,10 +97,16 @@ public class ModImporter
 
         int total = zip.Entries.Count;
         int done  = 0;
+        int lastReportedPct = 60;
         foreach (var zentry in zip.Entries)
         {
             ct.ThrowIfCancellationRequested();
             done++;
+
+            // Ignora artefatos do Finder/macOS que aparecem em ZIPs
+            // empacotados no Mac (e quebrariam a detecção de root).
+            if (zentry.FullName.Contains("__MACOSX", StringComparison.Ordinal))
+                continue;
 
             // Diretório vazio
             if (string.IsNullOrEmpty(zentry.Name) && zentry.FullName.EndsWith('/'))
@@ -109,18 +139,21 @@ public class ModImporter
                 zentry.ExtractToFile(fullDest, overwrite: true);
             }
 
-            if (done % 20 == 0)
+            // Reporta a cada mudança de % pra UI suavizar mesmo com mods
+            // grandes (antes era % 20 fixo — mods com 3000 entries
+            // reportavam 150x, mas agora preferimos throttle por valor).
+            int pct = 60 + (int)(35.0 * done / total);
+            if (pct != lastReportedPct)
             {
-                int p = 60 + (int)(35.0 * done / total);
-                progress?.Report(new(p, $"Extraindo… ({done}/{total})"));
+                lastReportedPct = pct;
+                progress?.Report(new(pct, $"Extraindo… ({done}/{total})"));
             }
         }
 
         progress?.Report(new(96, "Registrando mod…"));
-        var mod = await _repo.RegisterImportedAsync(entry.Name, rootFolder);
-
-        progress?.Report(new(100, "Concluído."));
-        return mod;
+        // RegisterImportedAsync é IO leve no mods.json; await sync ok.
+        return _repo.RegisterImportedAsync(entry.Name, rootFolder)
+            .GetAwaiter().GetResult();
     }
 
     private static string? DetectRootFolder(ZipArchive zip)
@@ -148,20 +181,31 @@ public class ModImporter
 
     private static async Task CopyWithProgressAsync(
         Stream src, Stream dst,
+        long? contentLength,
         IProgress<ImportProgress>? progress,
         CancellationToken ct)
     {
         var buffer = new byte[81920];
         long total = 0;
         int read;
+        int lastReportedPct = -1;
         while ((read = await src.ReadAsync(buffer, ct)) > 0)
         {
             await dst.WriteAsync(buffer.AsMemory(0, read), ct);
             total += read;
-            // Sem Content-Length confiável; mostra "vivos" entre 5-55%.
-            int p = 5 + (int)(Math.Min(total, 50_000_000) / 1_000_000);
+
+            // Com Content-Length usa o real (0..55%). Sem, cai no
+            // estimador antigo (cap em 50 MB). Throttle por % pra não
+            // floodar o IProgress com 100s de reports/segundo.
+            int p = contentLength is > 0
+                ? (int)(55.0 * total / contentLength.Value)
+                : 5 + (int)(Math.Min(total, 50_000_000) / 1_000_000);
             if (p > 55) p = 55;
-            progress?.Report(new(p, $"Baixando… ({total / 1024} KB)"));
+            if (p != lastReportedPct)
+            {
+                lastReportedPct = p;
+                progress?.Report(new(p, $"Baixando… ({total / 1024} KB)"));
+            }
         }
     }
 }

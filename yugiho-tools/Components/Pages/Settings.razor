@@ -7,6 +7,8 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject UpdateService Updates
+@inject SharedImagesService SharedImages
+@inject yugiho_tools.Application.Services.LoadedModCache RomCache
 @implements IDisposable
 
 <MudContainer MaxWidth="MaxWidth.False" Class="py-6 px-4"
@@ -181,6 +183,117 @@
             </MudPaper>
         </MudItem>
 
+        <!-- ─── Imagens compartilhadas (attributes / star / types) ─── -->
+        <MudItem xs="12">
+            <MudPaper Class="pa-4" Elevation="3"
+                      Style="background:#141428; border:1px solid #2a2a6e;">
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.subtitle1" Style="color:#c8a415; font-weight:700;">
+                        <MudIcon Icon="@Icons.Material.Filled.Image"
+                                 Class="mr-1" Size="Size.Small" />
+                        Imagens compartilhadas
+                    </MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.CloudDownload"
+                               OnClick="DownloadSharedImages"
+                               Disabled="_downloadingImages">
+                        @(_downloadingImages
+                            ? $"Baixando… {_imgPercent}%"
+                            : (SharedImages.IsInstalled
+                                ? "Atualizar pacote"
+                                : "Baixar pacote"))
+                    </MudButton>
+                </div>
+                <MudDivider Class="mb-3" Style="border-color:#2a2a6e;" />
+
+                <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-3 d-block">
+                    Pacote independente do MOD. Define quais ícones de
+                    <strong>atributo</strong>, <strong>estrela</strong> e
+                    <strong>tipo</strong> são exibidos. Cada categoria pode
+                    usar uma variante (SD original, HD original, SD MOD, HD MOD)
+                    conforme o que estiver disponível no pacote.
+                    @if (SharedImages.LastUpdatedUtc is { } ts)
+                    {
+                        <span> · Atualizado em @ts.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    }
+                </MudText>
+
+                @if (_downloadingImages)
+                {
+                    <MudProgressLinear Value="@_imgPercent" Color="Color.Warning"
+                                       Class="mb-2" />
+                    <MudText Typo="Typo.caption" Style="color:#888;" Class="mb-3 d-block">
+                        @_imgMessage
+                    </MudText>
+                }
+
+                @if (!SharedImages.IsInstalled)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined"
+                              Class="mb-2">
+                        Pacote ainda não baixado. Enquanto não baixar, o app
+                        usa as imagens (se houver) que vêm dentro do MOD.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudGrid Spacing="2">
+                        @foreach (var cat in SharedImagesService.Categories)
+                        {
+                            var variants = SharedImages.GetVariants(cat);
+                            var current  = GetCurrentVariant(cat);
+                            <MudItem xs="12" md="4">
+                                <div style="background:#0f0f24; border:1px solid #2a2a6e;
+                                            border-radius:6px; padding:12px;">
+                                    <div class="d-flex align-center justify-space-between mb-2">
+                                        <MudText Typo="Typo.body2"
+                                                 Style="color:#c8a415; font-weight:600;
+                                                        text-transform:capitalize;">
+                                            @VariantCategoryLabel(cat)
+                                        </MudText>
+                                        @{
+                                            var preview = SharedImages.GetPreviewDataUrl(cat, current ?? "");
+                                        }
+                                        @if (preview is not null)
+                                        {
+                                            <img src="@preview" alt=""
+                                                 style="max-width:30px; max-height:30px;
+                                                        object-fit:contain;
+                                                        image-rendering:pixelated;
+                                                        background:#000; padding:2px;
+                                                        border-radius:3px;" />
+                                        }
+                                    </div>
+
+                                    @if (variants.Count == 0)
+                                    {
+                                        <MudText Typo="Typo.caption" Style="color:#888;">
+                                            Categoria não está no pacote.
+                                        </MudText>
+                                    }
+                                    else
+                                    {
+                                        <MudSelect T="string" Value="@current"
+                                                   ValueChanged="@(v => OnVariantChanged(cat, v))"
+                                                   Variant="Variant.Outlined" Dense="true"
+                                                   Margin="Margin.Dense">
+                                            @foreach (var v in variants)
+                                            {
+                                                <MudSelectItem T="string" Value="@v">
+                                                    @VariantDisplayName(v)
+                                                </MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    }
+                                </div>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                }
+            </MudPaper>
+        </MudItem>
+
         <!-- ─── Auto-update ───────────────────────────────────────── -->
         <MudItem xs="12">
             <MudPaper Class="pa-4" Elevation="3"
@@ -299,6 +412,83 @@
     {
         L.Changed -= OnLocaleChanged;
         _selfRef?.Dispose();
+    }
+
+    // ── Imagens compartilhadas ────────────────────────────────────────
+    private bool   _downloadingImages;
+    private int    _imgPercent;
+    private string _imgMessage = "";
+
+    private string? GetCurrentVariant(string category) => category switch
+    {
+        SharedImagesService.CategoryAttributes => Cfg.SharedAttributesVariant,
+        SharedImagesService.CategoryStar       => Cfg.SharedStarVariant,
+        SharedImagesService.CategoryTypes      => Cfg.SharedTypesVariant,
+        _                                      => null,
+    };
+
+    private void OnVariantChanged(string category, string value)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        switch (category)
+        {
+            case SharedImagesService.CategoryAttributes:
+                Cfg.SharedAttributesVariant = value; break;
+            case SharedImagesService.CategoryStar:
+                Cfg.SharedStarVariant = value; break;
+            case SharedImagesService.CategoryTypes:
+                Cfg.SharedTypesVariant = value; break;
+        }
+        // SharedImagesService já se inscreveu em Cfg.Changed e re-aplica
+        // o ExtractedAssets sozinho — só precisa redesenhar essa página.
+        StateHasChanged();
+    }
+
+    private static string VariantCategoryLabel(string cat) => cat switch
+    {
+        SharedImagesService.CategoryAttributes => "Atributos",
+        SharedImagesService.CategoryStar       => "Estrela",
+        SharedImagesService.CategoryTypes      => "Tipos",
+        _                                      => cat,
+    };
+
+    private static string VariantDisplayName(string variant) => variant.ToLowerInvariant() switch
+    {
+        "sd"     => "SD",
+        "hd"     => "HD",
+        "sd_mod" => "SD MOD",
+        "hd_mod" => "HD MOD",
+        _        => variant,
+    };
+
+    private async Task DownloadSharedImages()
+    {
+        if (_downloadingImages) return;
+        _downloadingImages = true;
+        _imgPercent = 0;
+        _imgMessage = "Iniciando…";
+
+        var progress = new Progress<SharedImagesService.DownloadProgress>(p =>
+        {
+            _imgPercent = p.Percent;
+            _imgMessage = p.Message;
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await SharedImages.DownloadAsync(progress);
+            Snackbar.Add("Imagens compartilhadas atualizadas.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Falha ao baixar imagens: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _downloadingImages = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CheckUpdates()

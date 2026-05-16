@@ -58,6 +58,27 @@
        Mostrada em qualquer página enquanto o RomCache estiver carregando.
        Posicionada fixa logo abaixo do MudAppBar (top:64px), ocupa toda a
        largura, com mensagem de status à direita. Sumiu = ROM em RAM. *@
+    @* Erro persistente do load — quando IsLoading=false mas o cache
+       não tem dados E há mensagem, mostra um banner pra usuário entender
+       por que as cartas não aparecem (em vez de pensar que travou). *@
+    @if (!RomCache.IsLoading && !RomCache.HasData
+         && !string.IsNullOrEmpty(RomCache.Message)
+         && ModContext.Current is not null)
+    {
+        <div style="position:fixed; top:64px; left:0; right:0; z-index:1300;
+                    background:#3a1414; border-bottom:1px solid #d33;
+                    padding:6px 16px;">
+            <div class="d-flex align-center gap-3">
+                <MudIcon Icon="@Icons.Material.Filled.ErrorOutline"
+                         Style="color:#ff7676;" Size="Size.Small" />
+                <MudText Typo="Typo.caption"
+                         Style="color:#ff7676; font-weight:600;">
+                    @RomCache.Message
+                </MudText>
+            </div>
+        </div>
+    }
+
     @if (RomCache.IsLoading)
     {
         <div style="position:fixed; top:64px; left:0; right:0; z-index:1300;

@@ -1,0 +1,213 @@
+@using yugiho_tools.Application.Services
+@using yugiho_tools.Domain.Entities
+@using yugiho_tools.Domain.Interfaces
+@inject IModRepository ModRepo
+@inject CurrentModContext ModContext
+@inject LoadedModCache RomCache
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.h6" Style="color:#c8a415;">
+                <MudIcon Icon="@Icons.Material.Filled.Tune" Class="mr-1" />
+                @Mod.Name
+            </MudText>
+            <MudText Typo="Typo.caption" Style="color:#888;">
+                Define a fonte das imagens das cartas. As variantes
+                disponíveis dependem do que o pacote do MOD trouxe.
+            </MudText>
+
+            @* ─── Imagem principal ──────────────────────────────── *@
+            <MudPaper Class="pa-3" Style="background:#0f0f24; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle2" Style="color:#c8a415;" Class="mb-2">
+                    Imagem principal (catálogo / detalhes)
+                </MudText>
+
+                @if (_mainOptions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Nenhuma variante encontrada na pasta <code>cards/</code>.
+                    </MudAlert>
+                }
+                else
+                {
+                    <div class="d-flex gap-3 flex-wrap">
+                        @foreach (var v in _mainOptions)
+                        {
+                            var selected = string.Equals(v, _mainVariant, StringComparison.OrdinalIgnoreCase);
+                            <div @onclick="() => _mainVariant = v"
+                                 style="@VariantCardStyle(selected)">
+                                @{ var preview = _mainPreviews.GetValueOrDefault(v); }
+                                @if (preview is not null)
+                                {
+                                    <img src="@preview" alt=""
+                                         style="display:block; margin:0 auto;
+                                                max-width:96px; max-height:140px;
+                                                object-fit:contain;
+                                                image-rendering:pixelated;
+                                                background:#000; border-radius:3px;" />
+                                }
+                                else
+                                {
+                                    <div style="width:96px; height:140px;
+                                                background:#222; display:flex;
+                                                align-items:center; justify-content:center;
+                                                color:#666; font-size:10px;">sem preview</div>
+                                }
+                                <MudText Typo="Typo.caption"
+                                         Style="@(selected ? "color:#c8a415;font-weight:700;" : "color:#fff;")"
+                                         Align="Align.Center" Class="mt-1">
+                                    @VariantLabel(v)
+                                </MudText>
+                            </div>
+                        }
+                    </div>
+                }
+            </MudPaper>
+
+            @* ─── Mini (grafo de fusão) ─────────────────────────── *@
+            <MudPaper Class="pa-3" Style="background:#0f0f24; border:1px solid #2a2a6e;">
+                <MudText Typo="Typo.subtitle2" Style="color:#c8a415;" Class="mb-2">
+                    Mini (grafo de fusão)
+                </MudText>
+
+                @if (_miniOptions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Nenhuma variante mini encontrada.
+                    </MudAlert>
+                }
+                else
+                {
+                    <div class="d-flex gap-3 flex-wrap">
+                        @foreach (var v in _miniOptions)
+                        {
+                            var selected = string.Equals(v, _miniVariant, StringComparison.OrdinalIgnoreCase);
+                            <div @onclick="() => _miniVariant = v"
+                                 style="@VariantCardStyle(selected)">
+                                @{ var preview = _mainPreviews.GetValueOrDefault(v); }
+                                @if (preview is not null)
+                                {
+                                    <img src="@preview" alt=""
+                                         style="display:block; margin:0 auto;
+                                                max-width:96px; max-height:96px;
+                                                object-fit:contain;
+                                                image-rendering:pixelated;
+                                                background:#000; border-radius:3px;" />
+                                }
+                                <MudText Typo="Typo.caption"
+                                         Style="@(selected ? "color:#c8a415;font-weight:700;" : "color:#fff;")"
+                                         Align="Align.Center" Class="mt-1">
+                                    @VariantLabel(v)
+                                </MudText>
+                            </div>
+                        }
+                    </div>
+                }
+            </MudPaper>
+        </MudStack>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="_saving"
+                   OnClick="SaveAsync">
+            @(_saving ? "Salvando…" : "Salvar")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter] public Mod Mod { get; set; } = default!;
+
+    private List<string> _allVariants = [];
+    private List<string> _mainOptions = [];
+    private List<string> _miniOptions = [];
+    private Dictionary<string, string?> _mainPreviews = new();
+
+    private string _mainVariant = "";
+    private string _miniVariant = "";
+    private bool   _saving;
+
+    protected override void OnInitialized()
+    {
+        var folder = ModRepo.GetModFolderPath(Mod);
+        _allVariants = ExtractedDataLoader.GetAvailableCardVariants(folder).ToList();
+
+        // Particiona em "principal" (mini_hd / sd / hd) vs "mini" (mini_sd / mini_hd).
+        // mini_hd aparece em ambos — pode servir como display principal
+        // (preview compacto) ou como mini do grafo.
+        _mainOptions = _allVariants
+            .Where(v => CardVariants.MainOptions.Contains(v, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        _miniOptions = _allVariants
+            .Where(v => CardVariants.MiniOptions.Contains(v, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        // Preview de cada variante (1ª carta disponível). Carregado uma
+        // única vez no Init pra não relê-lo a cada re-render.
+        foreach (var v in _allVariants)
+            _mainPreviews[v] = ExtractedDataLoader.GetVariantPreview(folder, v);
+
+        _mainVariant = ResolveCurrent(Mod.CardImageVariant, _mainOptions, CardVariants.Sd);
+        _miniVariant = ResolveCurrent(Mod.FusionMiniVariant, _miniOptions, CardVariants.MiniSd);
+    }
+
+    private static string ResolveCurrent(string saved, List<string> available, string fallback)
+    {
+        if (!string.IsNullOrEmpty(saved) &&
+            available.Any(v => string.Equals(v, saved, StringComparison.OrdinalIgnoreCase)))
+            return saved;
+        if (available.Any(v => string.Equals(v, fallback, StringComparison.OrdinalIgnoreCase)))
+            return fallback;
+        return available.FirstOrDefault() ?? "";
+    }
+
+    private static string VariantLabel(string v) => v.ToLowerInvariant() switch
+    {
+        "sd"      => "SD (JPEG)",
+        "hd"      => "HD (PNG)",
+        "mini_sd" => "Mini SD (sprite)",
+        "mini_hd" => "Mini HD (frame)",
+        _         => v,
+    };
+
+    private static string VariantCardStyle(bool selected) =>
+        $"cursor:pointer; padding:8px; border-radius:6px; " +
+        $"background:{(selected ? "#1c1c4a" : "#141428")}; " +
+        $"border:2px solid {(selected ? "#c8a415" : "#2a2a6e")}; " +
+        $"min-width:120px; transition:all .15s;";
+
+    private async Task SaveAsync()
+    {
+        if (_saving) return;
+        _saving = true;
+        try
+        {
+            Mod.CardImageVariant  = _mainVariant;
+            Mod.FusionMiniVariant = _miniVariant;
+            await ModRepo.UpdateAsync(Mod);
+
+            // Se este MOD está ativo, recarrega pra que as imagens novas
+            // entrem em cena imediatamente (sem precisar reativar manualmente).
+            if (string.Equals(ModContext.CurrentSlug, Mod.Slug,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _ = RomCache.ReloadAsync();
+            }
+
+            Snackbar.Add("Configuração salva.", Severity.Success);
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Erro ao salvar: {ex.Message}", Severity.Error);
+        }
+        finally { _saving = false; }
+    }
+
+    private void Cancel() => Dialog.Cancel();
+}

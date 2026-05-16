@@ -20,14 +20,9 @@ public class ExtractedRomData
     public List<ExtractedCard>    Cards    { get; set; } = new();
     public List<ExtractedDuelist> Duelists { get; set; } = new();
 
-    /// <summary>Resultado da auto-detecção de offsets (pra debug).</summary>
-    public ExtractionDiagnostics Diagnostics { get; set; } = new();
-
-    /// <summary>
-    /// Posições dos slots da moldura (ATK/DEF/nome/atributo/estrelas)
-    /// lidas do SLUS no momento da extração. Persistidas no JSON para
-    /// que o app NÃO precise mais do SLUS depois de extraído.
-    /// </summary>
+    /// <summary>Posições dos slots da moldura (ATK/DEF/nome/atributo/
+    /// estrelas) embutidas pelo extractor. O app só consome, nunca
+    /// recalcula — toda decodificação ROM ficou no yugiho-download-json.</summary>
     public FramePositions Positions { get; set; } = new();
 }
 
@@ -105,11 +100,30 @@ public class ExtractedCard
     public Dictionary<string, string> DescriptionsByLanguage { get; set; } = new();
 }
 
+/// <summary>Entrada de fusão no formato compacto do extractor:
+/// <c>$1</c> = material 1, <c>$2</c> = material 2, <c>$3</c> = resultado,
+/// todos 1-based (id da carta). Os getters <see cref="Material"/> /
+/// <see cref="Result"/> mantêm compat com chamadores antigos que esperavam
+/// só "outro material + result" — derivados a partir do contexto da carta
+/// quando aplicável (caller passa o id próprio).</summary>
 public class ExtractedFusion
 {
-    /// <summary>Material acompanhante (essa carta é o outro material).</summary>
-    public int Material { get; set; }
-    public int Result   { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("$1")]
+    public int Mat1 { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("$2")]
+    public int Mat2 { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("$3")]
+    public int Result { get; set; }
+
+    /// <summary>Compat com schema antigo (<c>"Material"</c>/<c>"Result"</c>).
+    /// Setter aceita o JSON legado e popula <see cref="Mat1"/> pra preservar
+    /// caches de mods importados antes da migração — null/0 não sobrescreve.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("Material")]
+    public int LegacyMaterial
+    {
+        get => Mat1;
+        set { if (value != 0) Mat1 = value; }
+    }
 }
 
 public class ExtractedRitual
@@ -130,13 +144,3 @@ public class ExtractedDuelist
     public ushort[] SaTec  { get; set; } = [];
 }
 
-public class ExtractionDiagnostics
-{
-    public int  DuelistOffsetUsed         { get; set; }
-    public bool DuelistOffsetAutoDetected { get; set; }
-    /// <summary>Soma do primeiro pool (pow) do primeiro duelista — útil
-    /// pra diagnosticar se os drops estão "bons" (≈2048 ou 4096) ou
-    /// criptografados pelo criptoDrop (≈2512-2542).</summary>
-    public int FirstDuelistPowSum         { get; set; }
-    public bool DropsAppearScrambled       { get; set; }
-}

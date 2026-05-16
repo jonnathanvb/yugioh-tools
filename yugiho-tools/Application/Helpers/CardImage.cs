@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using yugiho_tools.Domain.Entities;
 
 namespace yugiho_tools.Application.Helpers;
@@ -17,7 +18,14 @@ public static class CardImage
     /// <see cref="LoadFromCards"/>. Usado quando <see cref="UseModImages"/>
     /// está ligado.
     /// </summary>
-    private static readonly Dictionary<int, string> ModUrls = new(722);
+    // ConcurrentDictionary porque a UI lê durante render (thread MAUI/UI)
+    // enquanto LoadFromCards repopula no Task.Run do LoadedModCache.
+    private static readonly ConcurrentDictionary<int, string> ModUrls  = new();
+    /// <summary>Cache <c>cardId → data URL</c> da variante mini, usada
+    /// exclusivamente pelo grafo de fusão. Pode ter resolução/qualidade
+    /// diferente do <see cref="ModUrls"/> conforme escolha do usuário em
+    /// <see cref="Domain.Entities.Mod.FusionMiniVariant"/>.</summary>
+    private static readonly ConcurrentDictionary<int, string> MiniUrls = new();
 
     /// <summary>
     /// Resolve a URL da imagem da carta. Se <see cref="UseModImages"/>
@@ -39,11 +47,28 @@ public static class CardImage
     /// </summary>
     public static void LoadFromCards(IEnumerable<Card> cards)
     {
+        // Clear+repopulate: a janela de inconsistência é tolerada porque
+        // ConcurrentDictionary só pode mostrar "carta ainda sem URL" durante
+        // a swap (fallback do template online cobre) — nunca exception.
         ModUrls.Clear();
+        MiniUrls.Clear();
         foreach (var c in cards)
         {
             if (!string.IsNullOrEmpty(c.ModImageDataUrl))
                 ModUrls[c.CardId] = c.ModImageDataUrl;
+            if (!string.IsNullOrEmpty(c.MiniImageDataUrl))
+                MiniUrls[c.CardId] = c.MiniImageDataUrl;
         }
+    }
+
+    /// <summary>Resolve a URL da variante mini (grafo de fusão). Cai pra
+    /// arte principal (<see cref="Url"/>) se a mini não foi carregada —
+    /// assim o grafo continua mostrando algo mesmo se o pacote do MOD
+    /// não tiver mini_sd/mini_hd.</summary>
+    public static string MiniUrl(string? template, int cardId)
+    {
+        if (UseModImages && MiniUrls.TryGetValue(cardId, out var mini))
+            return mini;
+        return Url(template, cardId);
     }
 }

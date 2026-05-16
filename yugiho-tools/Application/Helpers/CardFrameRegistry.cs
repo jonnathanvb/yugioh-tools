@@ -15,7 +15,9 @@ namespace yugiho_tools.Application.Helpers;
 /// </summary>
 public static class CardFrameRegistry
 {
-    private static readonly Dictionary<(int Cycle, int Color), string> Frames = new();
+    // ConcurrentDictionary — populado em Task.Run pelo ExtractedDataLoader
+    // enquanto a UI lê via GetFrame durante render.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(int Cycle, int Color), string> Frames = new();
 
     /// <summary>
     /// Posições dos elementos sobre o frame, em coordenadas do canvas
@@ -85,7 +87,7 @@ public static class CardFrameRegistry
     }
 
     /// <summary>True se o registry foi populado com sucesso.</summary>
-    public static bool HasFrames => Frames.Count > 0;
+    public static bool HasFrames => !Frames.IsEmpty;
 
     /// <summary>
     /// Popula o registry com data URLs já decodificadas (lidas do disco).
