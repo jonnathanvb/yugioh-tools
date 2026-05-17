@@ -68,15 +68,7 @@ public class ExtractedDataLoader
 
         progress?.Report(new(15, $"Convertendo {data.Cards.Count} cartas…"));
         var cards = data.Cards.Select(ToCardEntity).ToList();
-        var duelists = data.Duelists.Select(d => new Duelist
-        {
-            Id     = d.Id,
-            Name   = d.Name,
-            Deck   = d.Deck.Length   == 722 ? d.Deck   : new ushort[722],
-            SaPow  = d.SaPow.Length  == 722 ? d.SaPow  : new ushort[722],
-            BcdPow = d.BcdPow.Length == 722 ? d.BcdPow : new ushort[722],
-            SaTec  = d.SaTec.Length  == 722 ? d.SaTec  : new ushort[722],
-        }).ToList();
+        var duelists = data.Duelists.Select(ToDuelistEntity).ToList();
         ct.ThrowIfCancellationRequested();
 
         // Loading de imagens é a parte mais demorada (centenas de file
@@ -417,21 +409,14 @@ public class ExtractedDataLoader
         Attribute      = c.Attribute,
         GuardianStar1  = c.Guardian1,
         GuardianStar2  = c.Guardian2,
-        Equips         = new List<int>(c.Equips),
-        EquipTargets   = new List<int>(c.EquipTargets),
-        // FusionEngine indexa por (handCard, myCard) usando 0-based; aqui
-        // convertemos do schema novo ($1=mat1, $2=mat2, $3=result, todos
-        // 1-based) pra perspectiva da carta atual: o "outro material" é
-        // o que NÃO é ela. Quando $3==self, esta carta é o RESULTADO da
-        // fusão (não material) — pula pra não poluir FusionMaterials.
-        FusionMaterials = c.Fusions
-            .Where(f => f.Mat1 == c.Id || f.Mat2 == c.Id)
-            .Select(f => (f.Mat1 == c.Id ? f.Mat2 : f.Mat1) - 1)
-            .ToList(),
-        FusionResults = c.Fusions
-            .Where(f => f.Mat1 == c.Id || f.Mat2 == c.Id)
-            .Select(f => f.Result - 1)
-            .ToList(),
+        // Schema novo: IDs 1-based em equips/fusions/rituals. O engine
+        // interno (FusionEngine, CardDetailDialog) ainda trabalha com
+        // 0-based pra usar como índice direto na lista; convertemos uma
+        // vez aqui pra não espalhar (id - 1) em todo lugar.
+        Equips         = c.Equips      .Select(id => id - 1).ToList(),
+        EquipTargets   = c.EquipTargets.Select(id => id - 1).ToList(),
+        FusionMaterials = c.Fusions.Select(f => f.Material - 1).ToList(),
+        FusionResults   = c.Fusions.Select(f => f.Result   - 1).ToList(),
         IsRitual = c.IsRitual,
         IsFusion = c.IsFusion,
         Limited        = c.Limited,
@@ -439,9 +424,50 @@ public class ExtractedDataLoader
         CostStars      = c.CostStars,
         Rituals        = c.Rituals.Select(r => new RitualRecipe
                          {
-                             Ingredients = new List<int>(r.Ingredients),
-                             Result      = r.Result,
+                             Ingredients = r.Ingredients.Select(id => id - 1).ToList(),
+                             Result      = r.Result - 1,
                          }).ToList(),
         DescriptionsByLanguage = new Dictionary<string, string>(c.DescriptionsByLanguage),
     };
+
+    /// <summary>Converte o duelista do novo schema (lista achatada de
+    /// drops com tipo) pros arrays de 722 posições por pool que o
+    /// <see cref="Duelist"/> e a UI esperam. Pools por tipo:
+    /// <c>deck</c> → Deck, <c>pow</c> → SaPow, <c>bcd</c> → BcdPow,
+    /// <c>tec</c> → SaTec. Drops de tipo desconhecido são ignorados.</summary>
+    private static Duelist ToDuelistEntity(ExtractedDuelist d)
+    {
+        var deck   = new ushort[722];
+        var saPow  = new ushort[722];
+        var bcdPow = new ushort[722];
+        var saTec  = new ushort[722];
+
+        foreach (var drop in d.Drops)
+        {
+            // cardId 1-based → índice 0-based; rejeita fora dos limites.
+            int idx = drop.CardId - 1;
+            if (idx < 0 || idx >= 722) continue;
+            // dropRate cabe em ushort (pesos típicos ≤ 4096); cap pra
+            // não estourar se vier valor inesperado.
+            var rate = (ushort)Math.Clamp(drop.DropRate, 0, ushort.MaxValue);
+
+            switch (drop.Type)
+            {
+                case "deck": deck[idx]   = rate; break;
+                case "pow":  saPow[idx]  = rate; break;
+                case "bcd":  bcdPow[idx] = rate; break;
+                case "tec":  saTec[idx]  = rate; break;
+            }
+        }
+
+        return new Duelist
+        {
+            Id     = d.Id,
+            Name   = d.Name,
+            Deck   = deck,
+            SaPow  = saPow,
+            BcdPow = bcdPow,
+            SaTec  = saTec,
+        };
+    }
 }

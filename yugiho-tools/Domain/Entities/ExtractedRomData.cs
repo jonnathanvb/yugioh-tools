@@ -100,30 +100,13 @@ public class ExtractedCard
     public Dictionary<string, string> DescriptionsByLanguage { get; set; } = new();
 }
 
-/// <summary>Entrada de fusão no formato compacto do extractor:
-/// <c>$1</c> = material 1, <c>$2</c> = material 2, <c>$3</c> = resultado,
-/// todos 1-based (id da carta). Os getters <see cref="Material"/> /
-/// <see cref="Result"/> mantêm compat com chamadores antigos que esperavam
-/// só "outro material + result" — derivados a partir do contexto da carta
-/// quando aplicável (caller passa o id próprio).</summary>
+/// <summary>Entrada de fusão (Material + Result), ambos IDs 1-based de
+/// cartas. Material é o outro material que fusiona com a carta DONA da
+/// lista (a do contexto) pra produzir Result.</summary>
 public class ExtractedFusion
 {
-    [System.Text.Json.Serialization.JsonPropertyName("$1")]
-    public int Mat1 { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("$2")]
-    public int Mat2 { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("$3")]
-    public int Result { get; set; }
-
-    /// <summary>Compat com schema antigo (<c>"Material"</c>/<c>"Result"</c>).
-    /// Setter aceita o JSON legado e popula <see cref="Mat1"/> pra preservar
-    /// caches de mods importados antes da migração — null/0 não sobrescreve.</summary>
-    [System.Text.Json.Serialization.JsonPropertyName("Material")]
-    public int LegacyMaterial
-    {
-        get => Mat1;
-        set { if (value != 0) Mat1 = value; }
-    }
+    public int Material { get; set; }
+    public int Result   { get; set; }
 }
 
 public class ExtractedRitual
@@ -132,15 +115,34 @@ public class ExtractedRitual
     public int       Result      { get; set; }
 }
 
+/// <summary>Schema novo do duelista: <c>drops</c> achatado com
+/// <c>{cardId, dropRate, duelistId, type}</c>. Tipos: <c>deck</c>,
+/// <c>pow</c> (S/A POW), <c>bcd</c> (B/C/D POW), <c>tec</c> (S/A TEC).
+/// O <c>ExtractedDataLoader</c> converte de volta pros arrays de 722
+/// posições que o <see cref="Duelist"/> expõe.</summary>
 public class ExtractedDuelist
 {
-    public int    Id   { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("id")]
+    public int Id { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("name")]
     public string Name { get; set; } = "";
-    /// <summary>Pesos por carta (722 entradas). Soma típica = 40 (deck).</summary>
-    public ushort[] Deck   { get; set; } = [];
-    /// <summary>Pesos por carta (722 entradas). Soma típica = 2048 ou 4096.</summary>
-    public ushort[] SaPow  { get; set; } = [];
-    public ushort[] BcdPow { get; set; } = [];
-    public ushort[] SaTec  { get; set; } = [];
+    [System.Text.Json.Serialization.JsonPropertyName("uniqueDropId")]
+    public int UniqueDropId { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("drops")]
+    public List<ExtractedDrop> Drops { get; set; } = new();
+}
+
+public class ExtractedDrop
+{
+    [System.Text.Json.Serialization.JsonPropertyName("cardId")]
+    public int CardId { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("dropRate")]
+    public int DropRate { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("duelistId")]
+    public int DuelistId { get; set; }
+    /// <summary>Categoria do pool: <c>deck</c>, <c>pow</c>, <c>bcd</c>,
+    /// <c>tec</c>. Outros valores são ignorados pelo loader.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("type")]
+    public string Type { get; set; } = "";
 }
 
